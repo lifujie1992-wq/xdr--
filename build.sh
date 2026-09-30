@@ -9,6 +9,15 @@
 set -e
 cd "$(dirname "$0")"
 
+# launchd 环境下 PATH 极简，必须自己找 node（用 glob 自动探测）
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+for d in "$HOME/.local"/node-*/bin "$HOME/.nvm/versions/node"/*/bin /opt/homebrew/opt/node/bin "$HOME/.volta/bin"; do
+  [ -x "$d/node" ] && export PATH="$d:$PATH"
+done
+NODE_BIN="$(command -v node || true)"
+if [ -z "$NODE_BIN" ]; then echo "❌ 找不到 node，请检查 Node.js 安装（PATH=$PATH）"; exit 1; fi
+echo "   node: $NODE_BIN"
+
 APP="${SHOPDESK_APP:-/Users/zhaoxiaozhong/店铺工作台.app}"
 ASAR_BIN="${ASAR_BIN:-npx --yes @electron/asar}"
 WORK="$(mktemp -d)"
