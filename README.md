@@ -67,4 +67,3 @@ bash build.sh                 # 构建 + 部署 + 重启 App
 `~/Library/LaunchAgents/local.shopdesk.appeal.plist` → 每天 9:00
 调用 `daily-appeal.sh` → 触发申诉 + 同步平台审核结果。
 
-<!-- 部署链路测试 2026-10-01 04:04:57 -->

@@ -52,6 +52,20 @@ echo "④ 安装到 App"
 cp dist/app.asar "$APP/Contents/Resources/app.asar"
 /usr/libexec/PlistBuddy -c "Set :ElectronAsarIntegrity:Resources/app.asar:hash $HASH" "$APP/Contents/Info.plist"
 
+echo "④b 同步采集模块到 App（App 从 Resources/collectors/ 加载，不是从 asar）"
+if [ -d collectors ]; then
+  DEST="$APP/Contents/Resources/collectors"
+  mkdir -p "$DEST"
+  # collectors/ 下若直接是 builtin 内容，则装到 builtin/
+  if [ -f collectors/worker.py ]; then
+    mkdir -p "$DEST/builtin"; rsync -a --delete collectors/ "$DEST/builtin/" 2>/dev/null || cp -R collectors/* "$DEST/builtin/"
+  else
+    rsync -a --delete collectors/ "$DEST/" 2>/dev/null || cp -R collectors/* "$DEST/"
+  fi
+  rm -rf "$DEST/builtin/__pycache__" 2>/dev/null || true
+  echo "   已同步 $(ls "$DEST/builtin" 2>/dev/null | wc -l | tr -d ' ') 个采集模块文件"
+fi
+
 echo "⑤ 重签名（ad-hoc）"
 codesign --force --deep --sign - "$APP" >/dev/null 2>&1 && echo "   OK"
 
