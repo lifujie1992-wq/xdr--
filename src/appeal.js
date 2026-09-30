@@ -3,6 +3,7 @@ const {session, BrowserWindow} = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 
+// [devsim] 端到端验证改动
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let USER_DATA = '';
 const secure = {nodeIntegration:false, contextIsolation:true, sandbox:true};
