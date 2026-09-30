@@ -7,9 +7,17 @@ LOG="$HOME/Library/Application Support/shopdesk/autodeploy.log"
 mkdir -p "$(dirname "$LOG")"
 say(){ echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
-# 只在工作台没在跑任务时部署（避免打断申诉）
+# 有任务在跑就跳过本轮，避免打断采集/申诉
 BRIDGE="$HOME/Library/Application Support/shopdesk/agent-bridge.json"
 if pgrep -f "python.*worker.py" >/dev/null 2>&1; then say "有采集在跑，跳过本轮"; exit 0; fi
+if [ -f "$BRIDGE" ]; then
+  P=$(/usr/bin/plutil -extract port raw -o - "$BRIDGE" 2>/dev/null)
+  T=$(/usr/bin/plutil -extract token raw -o - "$BRIDGE" 2>/dev/null)
+  if [ -n "${P:-}" ] && [ -n "${T:-}" ]; then
+    R=$(/usr/bin/curl -s --max-time 5 --noproxy '*' -H "Authorization: Bearer $T" -H 'Content-Type: application/json'         -d '{"method":"auto_appeal_status"}' "http://127.0.0.1:$P/call" 2>/dev/null)
+    case "$R" in *'"running":true'*) say "申诉任务正在跑，跳过本轮部署"; exit 0;; esac
+  fi
+fi
 
 BEFORE=$(git rev-parse HEAD 2>/dev/null)
 git fetch --quiet origin main 2>>"$LOG" || { say "git fetch 失败（没网？）"; exit 0; }
