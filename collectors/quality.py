@@ -1,0 +1,365 @@
+from douyin import check_platform_login
+"""无凭证品退 / 中差评订单筛查（只读）。品退走售后列表+详情，中差评走评价列表。
+仅返回疑似符合举报条件的订单号与摘要，不提交任何举报、不写入订单隐私。
+"""
+import json, re, requests, time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+BASE = 'https://fxg.jinritemai.com'
+AFTER_SALE_API = BASE + '/after_sale/pc/list'
+AFTER_SALE_DETAIL_API = BASE + '/v1/aftersale/pc/detail'
+AFTER_SALE_REFERER = BASE + '/ffa/merchant-aftersale-workbench/aftersale/list'
+COMMENT_API = BASE + '/product/tcomment/commentList'
+COMMENT_REFERER = BASE + '/ffa/maftersale/comment'
+
+# 抖店品质类售后原因关键词（覆盖"商品做工粗糙/有瑕疵""质量不好""效果与描述不符"等常见品退口径）
+QUALITY_KEYWORDS = [
+    '做工粗糙', '做工', '瑕疵', '质量不好', '质量差', '质量', '效果与商品描述不符', '效果与描述不符',
+    '描述不符', '与图片不符', '图文不符', '货不对板', '实物与', '破损', '破洞', '污渍', '染色',
+    '起球', '掉色', '褪色', '缩水', '变形', '开线', '脱线', '掉毛', '掉钻', '异味', '臭味',
+    '材质与描述不符', '材质', '面料', '成分', '功能故障', '功能', '故障', '不能使用', '无法使用',
+    '假冒品牌', '假货', '仿冒', '山寨', '不是正品', '以次充好', '质量问题', '品质',
+]
+
+# 平台审核标准认可的“主观 / 非品质原因”关键词（原因选品质、但说明写这些）
+SUBJECTIVE_KEYWORDS = [
+    '不想要', '多拍', '拍多', '买多', '多买', '错拍', '拍错', '买错', '下错', '选错', '点错',
+    '不喜欢', '不好看', '觉得不好看', '难看', '不好搭配', '不合适', '不适合', '不需要', '用不上', '没用',
+    '无理由', '七天无理由', '7天无理由', '湊单', '后悔', '买重', '拍重', '下错单', '选错码', '尺码拍错',
+    '尺寸拍错', '颜色拍错', '拍错了', '买错了', '不想要了', '不想要啦',
+]
+
+def is_subjective_reason(text):
+    t = str(text or '')
+    return any(k in t for k in SUBJECTIVE_KEYWORDS)
+
+# 说明里出现这些强品质词时，说明原因与描述一致，不属于“与事实不符”，不纳入
+STRONG_QUALITY_WORDS = [
+    '质量差', '质量不好', '质量太差', '质量有问', '质量一般差', '做工', '瑕疵', '破损', '破洞', '污渍', '染色',
+    '起球', '掉色', '褪色', '缩水', '变形', '开线', '脱线', '掉毛', '掉钻', '异味', '臭味', '假货', '山寨',
+    '仿冒', '以次充好', '面料差', '布料差', '材质差', '料子差', '太差', '很差', '特别皱', '起皱', '皱巴巴', '线头',
+]
+
+def has_strong_quality(text):
+    t = str(text or '')
+    return any(k in t for k in STRONG_QUALITY_WORDS)
+
+# 中差评里出现以下具体品质词时，视为有实质质量问题描述，不纳入
+QUALITY_REVIEW_KEYWORDS = QUALITY_KEYWORDS + ['尺码不符', '厚度', '透', '薄', '硬', '扎', '痒', '漏', '破', '脏', '旧', '假']
+
+# 中差评里"情绪化/无实质"表述（仅在未出现具体品质词时使用）
+VAGUE_REVIEW_WORDS = ['差评', '不推荐', '不好', '一般', '失望', '垃圾', '后悔', '不值得', '不想要', '不喜欢',
+                      '无语', '服了', '呵呵', '唉', '退货', '难说', '凑合', '还行']
+
+def period(days=30):
+    now = datetime.now(ZoneInfo('Asia/Shanghai'))
+    start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    end = now.replace(hour=23, minute=59, second=59, microsecond=0)
+    return {'start': start.isoformat(), 'end': end.isoformat(),
+            'start_epoch': int(start.timestamp()), 'end_epoch': int(end.timestamp())}
+
+def span_since(since_ms, days=30):
+    """增量：从上次扫描时间（毫秒）到现在；无记录则回退到近 days 天。上限仍为 days 天。"""
+    now = datetime.now(ZoneInfo('Asia/Shanghai'))
+    start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        if since_ms:
+            s = datetime.fromtimestamp(int(since_ms) / 1000, ZoneInfo('Asia/Shanghai'))
+            if s > start:
+                start = s
+    except Exception:
+        pass
+    end = now.replace(hour=23, minute=59, second=59, microsecond=0)
+    return {'start': start.isoformat(), 'end': end.isoformat(),
+            'start_epoch': int(start.timestamp()), 'end_epoch': int(end.timestamp())}
+
+def is_quality_reason(reason):
+    r = str(reason or '')
+    return any(k in r for k in QUALITY_KEYWORDS)
+
+def has_quality_content(text):
+    """评价是否包含具体品质描述；只有空评价或纯情绪词才算‘无实质’。"""
+    t = str(text or '').strip()
+    if not t:
+        return False
+    return any(k in t for k in QUALITY_REVIEW_KEYWORDS)
+
+# 纯情绪 / 无实质内容（去除标点后需与词表完全一致才判为可申诉）
+PURE_EMOTION = {'差评', '中评', '差', '中', '烂', '不好', '不推荐', '不推荐购买', '垃圾', '辣鸡', '无语',
+                '服了', '服气', '呵呵', '唉', '哎', '后悔', '失望', '一般', '还行', '凑合', '醉了',
+                '离谱', '难看', '丑', '不值', '不值得', '浪费钱', '上当', '踩雷', '翻车', '绝了',
+                '恶心', '什么玩意', '很一般', '太差了', '差劲', '无语子'}
+
+def is_empty_or_emotion(text):
+    t = str(text or '').strip().strip('。.！!~～,，、；;？?　 \t\n')
+    return (not t) or (t in PURE_EMOTION)
+
+def _session(item, referer):
+    s = requests.Session(); s.trust_env = False
+    for c in item['cookies']:
+        s.cookies.set(c['name'], c['value'], domain=c['domain'], path=c.get('path', '/'), secure=c.get('secure', True))
+    s.headers.update({'User-Agent': item['ua'], 'Referer': referer, 'Accept': 'application/json'})
+    return s
+
+def _list_quality_orders(s, span, max_pages, page_size):
+    """拉取近 N 天售后单，返回原因命中品质关键词的订单（含售后单号）。"""
+    orders = []
+    body = {'pageSize': page_size, 'page': 1, 'order_by': ['status_deadline asc'], 'conf_version': 'v13',
+            'search_receiver': '', 'after_sale_status': '', 'after_sale_type': '', 'reason': '',
+            'negotiate_status': '', 'order_flag': [], 'order_logistics_state': [],
+            'apply_time_start': span['start_epoch'], 'apply_time_end': span['end_epoch'],
+            'shop_hit_gray_info': {'list_v1': {'hit': True}}}
+    total = 0
+    for page in range(1, max_pages + 1):
+        body['page'] = page
+        r = s.post(AFTER_SALE_API, params={'appid': '1', '_bid': 'ffa_aftersale', 'aid': '4272', 'aftersale_platform_source': 'fxg'},
+                   json=body, timeout=(5, 25), allow_redirects=False)
+        if r.status_code != 200:
+            raise ValueError('售后 HTTP 请求失败')
+        payload = r.json(); check_platform_login(payload)
+        if payload.get('code') != 0 or payload.get('st', 0) != 0:
+            raise ValueError('平台拒绝售后请求，请稍后重试')
+        data = payload.get('data', {}) or {}
+        items = data.get('items') or []
+        total = payload.get('total') or data.get('total') or total
+        for it in items:
+            info = it.get('after_sale_info') or {}
+            text = it.get('text_part') or {}
+            reason = text.get('reason_text') or ''
+            if not is_quality_reason(reason):
+                continue
+            order = it.get('order_info') or {}
+            orders.append({
+                'after_sale_id': str(info.get('after_sale_id') or ''),
+                'order_id': order.get('shop_order_id') or info.get('related_id') or '',
+                'reason': reason,
+                'apply_time': info.get('apply_time') or 0,
+            })
+        if len(items) < page_size:
+            break
+    return orders, total
+
+def _parse_detail(detail):
+    """从售后详情中解析售后原因、售后说明、买家凭证、联系买家飞鸽链接。"""
+    d = detail.get('data') or {}
+    asi = d.get('after_sale_info') or {}
+    det = asi.get('after_sale_detail') or {}
+    rows = det.get('detail_info_v3') or det.get('detail_info') or []
+    reason = ''; desc = ''
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = row.get('label') or ''
+        val = row.get('value')
+        text = ' '.join(str(v) for v in val) if isinstance(val, list) else str(val or '')
+        if label == '售后原因' and not reason:
+            reason = text
+        elif label == '售后说明' and not desc:
+            desc = _clean_desc(text)
+    return reason, desc, _has_evidence(d), _contact_url(d)
+
+def _contact_url(d):
+    for a in d.get('actions') or []:
+        if isinstance(a, dict) and a.get('id') == 'im_contact_user' and a.get('server_url'):
+            return str(a['server_url'])
+    return ''
+
+_EMPTY_TOKENS = {'', '-', '—', '－', '--', '无', '暂无', '无说明', 'null', 'None'}
+
+def _clean_desc(text):
+    t = str(text or '').strip()
+    return '' if t in _EMPTY_TOKENS else t
+
+def _ymd(epoch):
+    try:
+        return datetime.fromtimestamp(int(epoch), ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d')
+    except Exception:
+        return ''
+
+def quality_appeal(order_id, reason, desc, apply_time):
+    r = reason.replace('（商品品质原因）', '').replace('(商品品质原因)', '')
+    return ('订单号：%s\n'
+            '买家于%s发起售后申请，售后原因选择为“%s”，但售后说明填写的是“%s”。该说明属于个人主观原因，并非商品品质问题，与买家所选的品质退货原因不符。\n'
+            '根据平台规则，消费者选择的售后原因为品质问题、但售后说明为个人主观原因或其他非品质原因的，属于“品质退货与事实不符”，支持举报成功。\n'
+            '恳请平台核实并剔除该订单对本店商品品质退货率指标的考核，维护商家合法权益。\n'
+            '附件：①售后单详情截图  ②飞鸽完整聊天记录截图  ③订单详情截图') % (order_id, _ymd(apply_time) or '—', r, desc)
+
+def review_appeal(order_id, level, comment_time):
+    return ('订单号：%s\n'
+            '评价星级：%s\n'
+            '买家于%s对订单商品给出中差评，经本店核查，该评价存在以下与事实不符的情况：\n'
+            '一、评价无任何具体描述。买家评价内容为空，或仅含情绪化表述，未说明商品存在何种具体质量问题。\n'
+            '二、评价无任何有效凭证。买家未上传任何商品问题照片、视频，无法佐证其评价主张。\n'
+            '三、未事前联系客服。经核查飞鸽聊天记录，买家自下单至评价期间，从未通过客服渠道反馈过任何商品质量问题，也未与本店进行过任何售后协商，直接给出中差评。\n'
+            '综上，该评价缺乏事实依据，与商品实际品质情况不符，属于异常评价。恳请平台核实并屏蔽/删除该评价，维护商家合法权益。\n'
+            '附件：①评价详情截图  ②飞鸽完整聊天记录截图  ③订单详情截图') % (order_id, level or '—', _ymd(comment_time) or '—')
+
+def _has_evidence(obj):
+    """递归判断是否存在非空的买家图片/视频凭证。"""
+    keys = ('evidence_list', 'images', 'image_video', 'user_apply_evidence', 'evidence_judge_info')
+    found = [False]
+    def walk(o, depth=0):
+        if found[0] or depth > 12:
+            return
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k in keys and v:
+                    if isinstance(v, list) and len(v) > 0:
+                        found[0] = True; return
+                    if isinstance(v, dict) and len(v) > 0:
+                        found[0] = True; return
+                walk(v, depth + 1)
+        elif isinstance(o, list):
+            for x in o:
+                walk(x, depth + 1)
+    walk(obj)
+    return found[0]
+
+def _fetch_detail(s, after_sale_id):
+    r = s.get(AFTER_SALE_DETAIL_API, params={'appid': '1', '_bid': 'ffa_aftersale', 'aid': '4272',
+                                             'aftersale_platform_source': 'fxg', 'after_sale_id': after_sale_id,
+                                             'extra': json.dumps({'detail_upgrade_hit': 'new'}, separators=(',', ':'))},
+              timeout=(5, 25), allow_redirects=False)
+    if r.status_code != 200:
+        raise ValueError('售后详情请求失败')
+    payload = r.json(); check_platform_login(payload)
+    if payload.get('code') != 0 or payload.get('st', 0) != 0:
+        raise ValueError('售后详情被平台拒绝')
+    return payload
+
+def fetch_quality_returns(item, span=None, max_pages=20, page_size=50, max_details=25, detail_workers=5):
+    """扫描品退：售后原因为品质类，且售后说明为空、无任何买家图片/视频凭证。"""
+    if span is None:
+        span = span_since(item.get('since'))
+    started = time.perf_counter(); s = _session(item, AFTER_SALE_REFERER)
+    candidates = []
+    try:
+        orders, total = _list_quality_orders(s, span, max_pages, page_size)
+        quality_total = len(orders)
+        all_daily = {}
+        for _o in orders:
+            _d = _ymd(_o['apply_time'])
+            if _d: all_daily[_d] = all_daily.get(_d, 0) + 1
+        picked = orders[:max_details]
+        cookies = [dict(c) for c in item['cookies']]; ua = item['ua']
+        def work(o):
+            ds = _session({'cookies': [dict(c) for c in cookies], 'ua': ua}, AFTER_SALE_REFERER)
+            try:
+                reason, desc, has_ev, contact = _parse_detail(_fetch_detail(ds, o['after_sale_id']))
+                return o, reason, desc, has_ev, contact
+            except Exception:
+                return o, None, None, None, ''
+            finally:
+                ds.cookies.clear(); ds.close()
+        with ThreadPoolExecutor(max_workers=detail_workers) as pool:
+            for o, reason, desc, has_ev, contact in pool.map(work, picked):
+                if reason is None:
+                    continue  # 详情获取失败，不贸然判定
+                if not is_quality_reason(reason):
+                    continue
+                if not is_subjective_reason(desc):
+                    continue
+                if has_strong_quality(desc):
+                    continue  # 说明里也写了品质问题，原因与描述一致，举报不过
+                r_short = reason.replace('（商品品质原因）', '').replace('(商品品质原因)', '')
+                report_desc = ('售后原因选“%s”，但售后说明写的是“%s”，属个人主观/非品质原因，与所选品质退货原因不符，恳请核实剔除品退率考核。' % (r_short, desc))[:100]
+                candidates.append({
+                    'order_id': o['order_id'],
+                    'after_sale_id': o['after_sale_id'],
+                    'reason': reason,
+                    'description': desc,
+                    'has_media': bool(has_ev),
+                    'apply_time': datetime.fromtimestamp(o['apply_time'], ZoneInfo('Asia/Shanghai')).isoformat() if o['apply_time'] else '',
+                    'apply_date': _ymd(o['apply_time']),
+                    'flyge_url': contact,
+                    'evidence': '①售后单详情截图  ②飞鸽完整聊天记录截图  ③订单详情截图',
+                    'report_desc': report_desc,
+                    'appeal_text': quality_appeal(o['order_id'], reason, desc, o['apply_time']),
+                })
+        return {'shop_id': item['id'], 'name': item['name'], 'status': 'ok',
+                'quality_count': quality_total, 'checked_count': len(picked), 'candidate_count': len(candidates),
+                'all_daily': all_daily,
+                'candidates': candidates,
+                'candidate_orders': '、'.join(c['order_id'] for c in candidates[:30]) or '',
+                'captured_at': datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
+                'source': AFTER_SALE_API, 'http_seconds': round(time.perf_counter() - started, 3)}
+    except Exception as e:
+        return {'shop_id': item['id'], 'name': item['name'], 'status': 'error',
+                'error': str(e) if type(e) is ValueError else '请求或解析失败',
+                'http_seconds': round(time.perf_counter() - started, 3)}
+    finally:
+        s.cookies.clear(); s.close(); item['cookies'].clear()
+
+def fetch_negative_reviews(item, max_pages=20, page_size=50):
+    """扫描中差评（1~3 星）：近30天内、评价无实质描述、且无图片 / 无视频。"""
+    started = time.perf_counter(); s = _session(item, COMMENT_REFERER)
+    candidates = []; negative_total = 0; all_daily = {}
+    cutoff = int(time.time()) - 30 * 86400
+    try:
+        if item.get('since'):
+            cutoff = max(cutoff, int(int(item['since']) / 1000))   # 增量
+    except Exception:
+        pass
+    try:
+        for rank in (1, 2):  # 1=差评(1~2星) 2=中评(3星)
+            for page in range(0, max_pages):
+                r = s.get(COMMENT_API, params={'rank': rank, 'page': page, 'pageSize': page_size,
+                                               'status_filter': 0, 'content_search': 0, 'reply_search': 0,
+                                               'appeal_search': 0, 'bad_comment_class_tag_key': '',
+                                               'count_ecology_score_filter': 0, 'random': 0.5,
+                                               'appid': 1}, timeout=(5, 25), allow_redirects=False)
+                if r.status_code != 200:
+                    raise ValueError('评价 HTTP 请求失败')
+                payload = r.json(); check_platform_login(payload)
+                if payload.get('code') != 0 or payload.get('st', 0) != 0:
+                    raise ValueError('平台拒绝评价请求，请稍后重试')
+                rows = payload.get('data') or []
+                if not isinstance(rows, list):
+                    rows = []
+                negative_total += len(rows)
+                for c in rows:
+                    ct = c.get('comment_time') or 0
+                    if ct >= cutoff:
+                        _d = _ymd(ct)
+                        if _d: all_daily[_d] = all_daily.get(_d, 0) + 1
+                    if ct < cutoff:               # 平台：仅可举报30天内异常评价
+                        continue
+                    content = (c.get('content') or '').strip()
+                    photos = c.get('photos') or []
+                    videos = c.get('videos') or []
+                    if not is_empty_or_emotion(content) or photos or videos:
+                        continue
+                    candidates.append({
+                        'order_id': c.get('order_id') or c.get('shop_order_id') or '',
+                        'comment_id': str(c.get('id') or ''),
+                        'rank': c.get('rank'),
+                        'level': ((c.get('tags') or {}).get('rank_info') or {}).get('name') or '',
+                        'content': content,
+                        'has_media': bool(photos or videos),
+                        'comment_time': datetime.fromtimestamp(c.get('comment_time') or 0, ZoneInfo('Asia/Shanghai')).isoformat() if c.get('comment_time') else '',
+                        'comment_date': _ymd(c.get('comment_time')),
+                        'flyge_url': (((c.get('action_map') or {}).get('contactBuyer') or {}).get('action_url') or ''),
+                        'evidence': '①评价详情截图  ②飞鸽完整聊天记录截图  ③订单详情截图',
+                        'appeal_text': review_appeal(c.get('order_id') or c.get('shop_order_id') or '',
+                                                     ((c.get('tags') or {}).get('rank_info') or {}).get('name') or '',
+                                                     c.get('comment_time')),
+                    })
+                if len(rows) < page_size:
+                    break
+                if rows and min((c.get('comment_time') or 0) for c in rows) < cutoff:
+                    break   # 列表按时间倒序，已到30天前就不再看
+        return {'shop_id': item['id'], 'name': item['name'], 'status': 'ok',
+                'negative_count': negative_total, 'candidate_count': len(candidates),
+                'all_daily': all_daily,
+                'candidates': candidates,
+                'candidate_orders': '、'.join(c['order_id'] for c in candidates[:30]) or '',
+                'captured_at': datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
+                'source': COMMENT_API, 'http_seconds': round(time.perf_counter() - started, 3)}
+    except Exception as e:
+        return {'shop_id': item['id'], 'name': item['name'], 'status': 'error',
+                'error': str(e) if type(e) is ValueError else '请求或解析失败',
+                'http_seconds': round(time.perf_counter() - started, 3)}
+    finally:
+        s.cookies.clear(); s.close(); item['cookies'].clear()

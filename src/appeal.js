@@ -1,0 +1,597 @@
+// 自动申诉：筛查（复用采集）→ 飞鸽零沟通核查 → 逐单提交（只交平台"可举报"的）
+const {session, BrowserWindow} = require('electron');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let USER_DATA = '';
+const secure = {nodeIntegration:false, contextIsolation:true, sandbox:true};
+
+// ---- 在店铺页面里执行的脚本（自包含，通过 executeJavaScript 注入）----
+async function pageFlyge(){
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const cnt=()=>document.querySelectorAll('.msgItemWrap').length;
+  const findScroller=()=>{
+    let best=null;
+    for(const el of document.querySelectorAll('div')){
+      try{ if(el.scrollHeight>el.clientHeight+20 && el.querySelector('.msgItemWrap')) best=el; }catch(e){}
+    }
+    return best||document.scrollingElement||document.documentElement;
+  };
+  for(let i=0;i<10;i++){ if(cnt()>0) break; await sleep(800); }   // 等首次加载
+  let prev=-1,stable=0;
+  for(let i=0;i<25;i++){                                          // 不断往上滚，加载历史消息
+    const s=findScroller();
+    try{ s.scrollTop=0; s.dispatchEvent(new Event('scroll',{bubbles:true})); }catch(e){}
+    await sleep(700);
+    const c=cnt();
+    if(c===prev) stable++; else stable=0;
+    prev=c;
+    if(stable>=3) break;                                          // 数量稳定 → 已到顶
+  }
+  const wraps=[...document.querySelectorAll('.msgItemWrap')];
+  const msgs=wraps.map(w=>({buyer:!!w.querySelector('.messageNotMe'),txt:(w.innerText||'').replace(/\s+/g,' ').trim().slice(0,200)}));
+  const buyer=msgs.filter(m=>m.buyer);
+  return JSON.stringify({ready:wraps.length>0,total:msgs.length,buyer_count:buyer.length,buyer_msgs:buyer.map(m=>m.txt).slice(0,50)});
+}
+
+async function pageFinalize(cfg){
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const desc=(cfg.desc||'').slice(0,100), doSubmit=cfg.submit===true;
+  const setV=(el,v)=>{const p=el.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(el,v);el.dispatchEvent(new Event('input',{bubbles:true}))};
+  const latestId=async()=>{try{const r=await fetch('/shopuser/accuse/list',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({page:0,pageSize:3})});const j=await r.json();const l=(j.data&&j.data.accuse_list)||[];return l[0]?String(l[0].id):null}catch(e){return null}};
+  const btnOf=()=>[...document.querySelectorAll('button')].find(b=>{const t=(b.innerText||'').trim();return /确定举报|提交举报|确认举报/.test(t)&&!/取消/.test(t)});
+  const toast=()=>[...document.querySelectorAll('.ant-message,.ant-notification,.ant-modal,[role=dialog],.auxo-message,.auxo-modal,.ant-form-item-explain-error')].map(e=>(e.innerText||'').replace(/\s+/g,' ').trim()).filter(Boolean).join(' | ').slice(0,220);
+  const ta=[...document.querySelectorAll('textarea')].find(x=>(x.placeholder||'').includes('详细描述'));
+  if(ta){ setV(ta,desc); await sleep(600); }
+  const files=[...document.querySelectorAll('input[type=file]')].map(i=>(i.files||[]).length);
+  if(!doSubmit) return JSON.stringify({filled:true,descOk:!!ta,files:files});
+  const btn=btnOf();
+  if(!btn) return JSON.stringify({submitted:false,verified:false,reason:'没找到提交按钮',files:files,toast:toast()});
+  const binfo={text:(btn.innerText||'').trim(),disabled:!!btn.disabled};
+  if(btn.disabled) return JSON.stringify({submitted:false,verified:false,reason:'提交按钮禁用',binfo:binfo,files:files,toast:toast()});
+  const beforeId=await latestId();
+  btn.click(); await sleep(2500);
+  const t1=toast();
+  const ok=[...document.querySelectorAll('button')].find(b=>{const t=(b.innerText||'').trim();return /^(确定|确认|我知道了|好的|继续举报)$/.test(t)&&!b.disabled});
+  if(ok){ ok.click(); await sleep(2000); }
+  const t2=toast();
+  let afterId=null;
+  for(let k=0;k<6;k++){ afterId=await latestId(); if(afterId&&String(afterId)!==String(beforeId)) return JSON.stringify({submitted:true,verified:true,reportId:afterId,binfo:binfo}); await sleep(2500); }
+  return JSON.stringify({submitted:false,verified:false,reason:'提交未生效',beforeId:beforeId,afterId:afterId,binfo:binfo,files:files,toast:[t1,t2],tail:(document.body?document.body.innerText:'').slice(-200).replace(/\s+/g,' ')});
+}
+
+async function cdpClick(wc,x,y){
+  try{
+    try{ wc.debugger.attach('1.3'); }catch(e){}
+    const X=Math.round(x),Y=Math.round(y);
+    await wc.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:X,y:Y,button:'none',clickCount:0});
+    await wc.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mousePressed',x:X,y:Y,button:'left',clickCount:1});
+    await wc.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseReleased',x:X,y:Y,button:'left',clickCount:1});
+    return true;
+  }catch(e){ return false }
+}
+// 搜索到那一行，返回复选框屏幕坐标 + 当前已选数
+async function pageSearch(cfg){
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const kind=cfg.kind==='review'?'review':'quality', order=cfg.order;
+  const SCENE=kind==='review'?'异常评价':'异常售后', PICK=kind==='review'?'选择评价':'选择订单';
+  const click=(t)=>{const el=[...document.querySelectorAll('div,span,button,li')].find(e=>e.children.length===0&&(e.innerText||'').trim()===t);if(el){(el.closest('button')||el).click();return true}return false};
+  const setV=(el,v)=>{const p=el.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(el,v);el.dispatchEvent(new Event('input',{bubbles:true}))};
+  const oInput=()=>[...document.querySelectorAll('input')].find(x=>{const p=x.placeholder||'';return p.includes('编号')||p==='请输入'||p.includes('多个编号')});
+  const rowOf=()=>[...document.querySelectorAll('tr')].find(r=>(r.innerText||'').includes(order));
+  const selCount=()=>{const m=(document.body.innerText||'').match(/已选\s*(\d+)\s*[个条]/);return m?+m[1]:-1};
+  click(SCENE);await sleep(800);click(cfg.reason);await sleep(1200);click(PICK);await sleep(1800);
+  const oi=oInput(); if(oi)setV(oi,order);
+  click('查询');await sleep(2200);
+  let tr=rowOf(); for(let k=0;k<8&&!tr;k++){ await sleep(1000); tr=rowOf(); }
+  if(!tr) return JSON.stringify({found:false,sel:selCount()});
+  tr.scrollIntoView({block:'center'});await sleep(400);
+  const cb=tr.querySelector('input[type=checkbox],input[type=radio]')||tr;
+  const rc=cb.getBoundingClientRect();
+  return JSON.stringify({found:true,sel:selCount(),rowText:(tr.innerText||'').replace(/\s+/g,' ').slice(0,120),box:{x:rc.left+Math.min(10,Math.max(4,rc.width/2)),y:rc.top+rc.height/2,w:rc.width,h:rc.height}});
+}
+async function pageFillSubmit(cfg){
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const setV=(el,v)=>{const p=el.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(el,v);el.dispatchEvent(new Event('input',{bubbles:true}))};
+  const ta=[...document.querySelectorAll('textarea')].find(x=>(x.placeholder||'').includes('详细描述'));
+  if(ta){ setV(ta,(cfg.desc||'').slice(0,100)); await sleep(600); }
+  const b=[...document.querySelectorAll('button')].find(x=>/确定举报|提交举报/.test(x.innerText||'')&&!/取消/.test(x.innerText||''));
+  if(!b) return JSON.stringify({clicked:false,err:'没找到确定举报按钮',descOk:!!ta});
+  if(b.disabled) return JSON.stringify({clicked:false,err:'按钮禁用',descOk:!!ta});
+  b.click(); await sleep(2600);
+  const toast=[...document.querySelectorAll('.ant-message,.ant-notification,.ant-modal,[role=dialog],.auxo-message')].map(e=>(e.innerText||'').replace(/\s+/g,' ').trim()).filter(Boolean).join(' | ').slice(0,200);
+  return JSON.stringify({clicked:true,descOk:!!ta,toast:toast});
+}
+
+const NET_HOOK_SRC = `(function(){
+  try{
+    window.__net = { http: [], ws: [] };
+    const of = window.fetch;
+    window.fetch = function(u,o){ try{ window.__net.http.push(String(u).split('?')[0]); }catch(e){} return of.apply(this,arguments) };
+    const oo = XMLHttpRequest.prototype.open; XMLHttpRequest.prototype.open = function(m,u){ try{ window.__net.http.push(String(u).split('?')[0]); }catch(e){} return oo.apply(this,arguments) };
+    const OW = window.WebSocket;
+    if(OW){
+      const NW = function(u,p){ try{ window.__net.ws.push({url:String(u)}); }catch(e){} const w = new OW(u,p);
+        try{ w.addEventListener('message', function(ev){ try{ window.__net.ws.push({dir:'in', d:String(ev.data).slice(0,600)}); }catch(e){} }); }catch(e){}
+        try{ const os = w.send; w.send = function(d){ try{ window.__net.ws.push({dir:'out', d:String(d).slice(0,600)}); }catch(e){} return os.apply(w, arguments) }; }catch(e){}
+        return w; };
+      NW.prototype = OW.prototype; NW.CONNECTING=0; NW.OPEN=1; NW.CLOSING=2; NW.CLOSED=3;
+      window.WebSocket = NW;
+    }
+  }catch(e){}
+})();`;
+async function installNetHook(wc){
+  try{
+    try{ wc.debugger.attach('1.3'); }catch(e){}
+    await wc.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: NET_HOOK_SRC });
+    return true;
+  }catch(e){ return false }
+}
+async function pageReadNet(){ try{ return JSON.stringify(window.__net||{}) }catch(e){ return '{}' } }
+
+async function pageHookFetch(){ try{ window.__cap=[]; const of=window.fetch; window.fetch=function(u,o){ try{ const m=((o&&o.method)||'GET').toUpperCase(); if(m==='POST') window.__cap.push({u:String(u).split('?')[0],b:String((o&&o.body)||'').slice(0,2000)}); }catch(e){} return of.apply(this,arguments) }; const oo=XMLHttpRequest.prototype.open,ox=XMLHttpRequest.prototype.send; XMLHttpRequest.prototype.open=function(m,u){ this.__u=u; this.__m=m; return oo.apply(this,arguments) }; XMLHttpRequest.prototype.send=function(b){ try{ if(String(this.__m).toUpperCase()==='POST') window.__cap.push({u:String(this.__u).split('?')[0],b:String(b||'').slice(0,2000)}); }catch(e){} return ox.apply(this,arguments) }; return true }catch(e){ return false } }
+async function pageReadCap(){ try{ return JSON.stringify(window.__cap||[]) }catch(e){ return '[]' } }
+// ===== 接口版：预检 + 提交（在页面上下文执行，避开风控与 UI） =====
+const SCENE_CODES = {
+  quality: { scene: 'report_type_unusual_after_sale', sub: 'report_reason_return_wrong_reason' }
+};
+// 中差评：全部已实测的原因代码（按常用度排序，逐个试）
+const REVIEW_CODES = [
+  { scene: 'report_type_unusual_comment', sub: 'report_reason_fake_negative_comment',          label: '评价等级为差评内容为好评' },
+  { scene: 'report_type_unusual_comment', sub: 'report_reason_evaluate_product_other_shop',    label: '评价内容非交易商品或内容无意义' },
+  { scene: 'report_type_unusual_comment', sub: 'report_reason_wrong_size',                     label: '消费者买错型号' },
+  { scene: 'report_type_unusual_comment', sub: 'report_reason_low_politics_guns',              label: '评价内容中包含辱骂或不当词汇' },
+  { scene: 'report_type_unusual_comment', sub: 'report_reason_negative_comment_compensation',  label: '利用中差评骗赔' },
+  { scene: 'report_type_unusual_comment', sub: 'report_reason_business_evil_compete',          label: '同行恶意竞争' }
+];
+async function pageReviewCheck(cfg){
+  try{
+    const r = await fetch('/shopuser/accuse/comment_list', {method:'POST', credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({size:5, page:1, scene_type:cfg.scene, sub_scene_type:cfg.sub, accuse_id:null, sku_order_id:String(cfg.order)})});
+    const j = await r.json();
+    const c = ((j.data||{}).comments||[])[0] || null;
+    if(!c) return JSON.stringify({found:false});
+    const st = (c.status&&c.status.text)||'';
+    const hover = ((((c.status_ext||{}).placeholder||[])[0]||{}).hover)||'';
+    return JSON.stringify({found:true, can_select:!!c.can_select, status:String(st).replace(/<%[^%]*%>/g,''), hover:hover, comment_id:String(c.comment_id||''), rank:c.rank||'', content:String(c.content||'').slice(0,60), product_name:c.product_name||'', product_id:c.product_id?String(c.product_id):''});
+  }catch(e){ return JSON.stringify({error:String(e&&e.message||e)}) }
+}
+async function pageReviewApply(cfg){
+  try{
+    const body = { scene_type: cfg.scene, sub_scene_type: cfg.sub, report_desc: cfg.desc||'',
+      is_chat_granted: true, sku_order_id: String(cfg.order), comment_id: String(cfg.cid||''),
+      proof_infos: cfg.proofs||[], come_from: '' };
+    const r = await fetch('/shopuser/accuse/apply', {method:'POST', credentials:'include',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const t = await r.text();
+    return JSON.stringify({reqBody: body, resp: t.slice(0,600)});
+  }catch(e){ return JSON.stringify({error:String(e&&e.message||e)}) }
+}
+async function pagePreCheckApply(cfg){
+  try{
+    const r = await fetch('/shopuser/accuse/apply_pre_check_v2', {method:'POST', credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({order_ids:[String(cfg.order)], scene_type:cfg.scene, sub_scene_type:cfg.sub, accuse_id:null})});
+    const t = await r.text();
+    return t;
+  }catch(e){ return JSON.stringify({error:String(e&&e.message||e)}) }
+}
+async function pageApplyNow(cfg){
+  try{
+    const body = { scene_type: cfg.scene, sub_scene_type: cfg.sub, report_desc: cfg.desc||'',
+      is_chat_granted: true, order_ids: [String(cfg.order)], proof_infos: cfg.proofs||[], come_from: '' };
+    const r = await fetch('/shopuser/accuse/apply', {method:'POST', credentials:'include',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const t = await r.text();
+    return JSON.stringify({reqBody: body, resp: t.slice(0,600)});
+  }catch(e){ return JSON.stringify({error:String(e&&e.message||e)}) }
+}
+async function pagePick(cfg){
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const kind=cfg.kind==='review'?'review':'quality', order=cfg.order;
+  const SCENE=kind==='review'?'异常评价':'异常售后', PICK=kind==='review'?'选择评价':'选择订单';
+  const click=(t)=>{const el=[...document.querySelectorAll('div,span,button,li')].find(e=>e.children.length===0&&(e.innerText||'').trim()===t);if(el){(el.closest('button')||el).click();return true}return false};
+  const setV=(el,v)=>{const p=el.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(el,v);el.dispatchEvent(new Event('input',{bubbles:true}))};
+  const oInput=()=>[...document.querySelectorAll('input')].find(x=>{const p=x.placeholder||'';return p.includes('编号')||p==='请输入'||p.includes('多个编号')});
+  const rowOf=()=>[...document.querySelectorAll('tr')].find(r=>(r.innerText||'').includes(order));
+  const selCount=()=>{const m=(document.body.innerText||'').match(/已选\s*(\d+)\s*[个条]/);return m?+m[1]:-1};
+  click(SCENE);await sleep(700);
+  click(cfg.reason);await sleep(1100);
+  click(PICK);await sleep(1600);
+  const oi=oInput(); if(oi)setV(oi,order);
+  click('查询');await sleep(2300);
+  let tr=rowOf(); for(let k=0;k<8&&!tr;k++){ await sleep(1000); tr=rowOf(); }
+  if(!tr) return JSON.stringify({picked:false,why:'未查到'});
+  const rt=tr.innerText||'';
+  if(/无需举报/.test(rt)) return JSON.stringify({picked:false,why:'无需举报'});
+  if(/不可举报/.test(rt)) return JSON.stringify({picked:false,why:'不可举报'});
+  const cb=tr.querySelector('input[type=checkbox],input[type=radio]');
+  if(cb) cb.click(); await sleep(700);
+  if(selCount()<=0 && cb){ cb.click(); await sleep(600); }
+  if(selCount()<=0) return JSON.stringify({picked:false,why:'勾选失败'});
+  const b=[...document.querySelectorAll('button')].find(x=>(x.innerText||'').trim()==='确定');
+  if(b) b.click(); await sleep(1600);
+  return JSON.stringify({picked:true,files:document.querySelectorAll('input[type=file]').length});
+}
+async function pageLatestId(){ try{ const r=await fetch('/shopuser/accuse/list',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({page:0,pageSize:3})}); const j=await r.json(); const l=(j.data&&j.data.accuse_list)||[]; return l[0]?String(l[0].id):null; }catch(e){ return null } }
+async function pageSelCount(){ const m=(document.body.innerText||'').match(/已选\s*(\d+)\s*[个条]/); return m?+m[1]:-1; }
+async function pagePickConfirm(){
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const b=[...document.querySelectorAll('button')].find(x=>{const t=(x.innerText||'').trim();return /^确定$/.test(t)});
+  if(b){ b.click(); await sleep(1500); return true }
+  return false;
+}
+async function pageFillDesc(cfg){
+  const p=window.HTMLTextAreaElement.prototype;
+  const ta=[...document.querySelectorAll('textarea')].find(x=>(x.placeholder||'').includes('详细描述'));
+  if(!ta) return false;
+  Object.getOwnPropertyDescriptor(p,'value').set.call(ta,(cfg.desc||'').slice(0,100));
+  ta.dispatchEvent(new Event('input',{bubbles:true}));
+  return true;
+}
+async function pageSubmitClick(){
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const b=[...document.querySelectorAll('button')].find(x=>{const t=(x.innerText||'').trim();return /确定举报|提交举报/.test(t)&&!/取消/.test(t)});
+  if(!b) return JSON.stringify({clicked:false,err:'没找到确定举报按钮'});
+  if(b.disabled) return JSON.stringify({clicked:false,err:'按钮禁用'});
+  b.click(); await sleep(2500);
+  const t=[...document.querySelectorAll('.ant-message,.ant-notification,.ant-modal,[role=dialog],.auxo-message')].map(e=>(e.innerText||'').replace(/\s+/g,' ').trim()).filter(Boolean).join(' | ').slice(0,200);
+  return JSON.stringify({clicked:true,toast:t});
+}
+
+async function pageSubmit(cfg){
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const kind=cfg.kind==='review'?'review':'quality', order=cfg.order, desc=(cfg.desc||'').slice(0,100), doSubmit=cfg.submit===true;
+  const SCENE=kind==='review'?'异常评价':'异常售后', PICK=kind==='review'?'选择评价':'选择订单';
+  const DEF=kind==='review'?['评价等级为差评内容为好评','评价内容非交易商品或内容无意义']:['消费者选择品质退货与事实不符'];
+  const REASONS=(cfg.reason&&cfg.reason.trim())?[cfg.reason]:DEF;
+  const click=(t)=>{const el=[...document.querySelectorAll('div,span,button,li')].find(e=>e.children.length===0&&(e.innerText||'').trim()===t);if(el){(el.closest('button')||el).click();return true}return false};
+  const setV=(el,v)=>{const pr=el.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(pr,'value').set.call(el,v);el.dispatchEvent(new Event('input',{bubbles:true}))};
+  const oInput=()=>[...document.querySelectorAll('input')].find(x=>{const p=x.placeholder||'';return p.includes('编号')||p==='请输入'||p.includes('多个编号')});
+  const rowOf=()=>[...document.querySelectorAll('tr')].find(r=>(r.innerText||'').includes(order));
+  const ready=async()=>{ for(let i=0;i<12;i++){ if([...document.querySelectorAll('div,span,button,li')].some(e=>(e.innerText||'').trim()===SCENE)) return true; await sleep(700);} return false; };
+  const latestId=async()=>{ try{ const r=await fetch('/shopuser/accuse/list',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({page:0,pageSize:3})}); const j=await r.json(); const l=(j.data&&j.data.accuse_list)||[]; return l[0]?String(l[0].id):null; }catch(e){ return null } };
+  const log=[];
+  for(let attempt=0; attempt<2; attempt++){
+    await ready();
+    click(SCENE);await sleep(800);
+    let chosen=null,picked=false,lastSkip='不可举报',sawRow=false;
+    for(const reason of REASONS){
+      click(reason);await sleep(1200);click(PICK);await sleep(1700);
+      const oi=oInput();if(oi)setV(oi,order);
+      click('查询');await sleep(2300);
+      let tr=rowOf();
+      for(let k=0;k<8&&!tr;k++){ await sleep(1000); tr=rowOf(); }
+      if(!tr){log.push([reason,'未找到']);click('取消');await sleep(700);continue}
+      sawRow=true;
+      const rt=tr.innerText||'';
+      if(/无需举报/.test(rt)){log.push([reason,'无需举报']);lastSkip='无需举报';click('取消');await sleep(700);continue}
+      if(/不可举报/.test(rt)){log.push([reason,'不可举报']);lastSkip='不可举报';click('取消');await sleep(700);continue}
+      const selCount=()=>{const m=(document.body.innerText||'').match(/已选\s*(\d+)\s*[个条]/);return m?+m[1]:-1};
+      const cb=tr.querySelector('input[type=checkbox],input[type=radio]');
+      if(cb&&!cb.checked){cb.click();await sleep(500);}
+      if(selCount()<=0&&cb){const w=cb.closest('label')||cb.parentElement;if(w){w.click();await sleep(500);}}
+      if(selCount()<=0){tr.click();await sleep(500);}
+      if(selCount()<=0){log.push([reason,'勾选失败']);click('取消');await sleep(600);continue;}
+      click('确定');await sleep(1500);chosen=reason;picked=true;break;
+    }
+    if(!picked)return JSON.stringify({submitted:false,skipped: sawRow?lastSkip:'未查到',log});
+    const ta=[...document.querySelectorAll('textarea')].find(x=>(x.placeholder||'').includes('详细描述'));
+    if(ta){setV(ta,desc);await sleep(500);}
+    const descOk=!!ta;
+    if(!doSubmit)return JSON.stringify({submitted:false,reason:chosen,filled:true,log});
+    const beforeId=await latestId();
+    click('确定举报');await sleep(3000);
+    let afterId=null,ok=false;
+    for(let k=0;k<8;k++){ afterId=await latestId(); if(afterId&&String(afterId)!==String(beforeId)){ok=true;break;} await sleep(3000); }
+    if(ok) return JSON.stringify({submitted:true,reason:chosen,verified:true,reportId:afterId,attempt:attempt+1});
+    log.push(['attempt'+(attempt+1),'未核实,desc'+(descOk?'ok':'MISSING'),(document.body?document.body.innerText:'').slice(-120).replace(/\s+/g,' ')]);
+  }
+  return JSON.stringify({submitted:false,verified:false,reason:'提交未生效',log});
+}
+
+async function pageHasReport(cfg){
+  const oid=String(cfg.order||'');
+  for(let pg=0;pg<8;pg++){
+    const r=await fetch('/shopuser/accuse/list',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({page:pg,pageSize:20})});
+    const j=await r.json(); const l=(j.data&&j.data.accuse_list)||[]; if(!l.length) break;
+    for(const it of l){
+      let d={}; try{ const r2=await fetch('/shopuser/accuse/detail',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:it.id})}); d=(await r2.json()).data||{}; }catch(e){}
+      const os=(d.order_list||[]).map(o=>String(o.order_id||o.id));
+      if(d.abnormal_comment&&d.abnormal_comment.sku_order_id) os.push(String(d.abnormal_comment.sku_order_id));
+      if(os.includes(oid)) return it.id;
+    }
+  }
+  return null;
+}
+async function pageSyncReports(cfg){
+  const out=[]; const cutoffMs=Date.now()-(cfg&&cfg.days?cfg.days:30)*86400000;
+  for(let pg=0;pg<cfg.pages;pg++){
+    const r=await fetch('/shopuser/accuse/list',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({page:pg,pageSize:20})});
+    const j=await r.json(); const l=(j.data&&j.data.accuse_list)||[]; if(!l.length) break;
+    let stop=false;
+    for(const it of l){
+      const t=Date.parse((it.create_time||'').replace(/\//g,'-'));
+      if(t && t<cutoffMs){ stop=true; continue; }
+      let d={};
+      try{ const r2=await fetch('/shopuser/accuse/detail',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:it.id})}); d=(await r2.json()).data||{}; }catch(e){}
+      const orders=(d.order_list||[]).map(o=>String(o.order_id||o.id)).filter(Boolean);
+      const ac=d.abnormal_comment;
+      if(ac&&ac.sku_order_id) orders.push(String(ac.sku_order_id));
+      let ex={}; try{ ex=JSON.parse(d.extra||'{}')||{}; }catch(e){}
+      if(ex.order_id) orders.push(String(ex.order_id));
+      out.push({id:it.id,scene:it.scene_type_name,sub:it.sub_scene_type_name,auditStatus:it.audit_status,auditTime:it.audit_time,created:it.create_time,orders:[...new Set(orders)],resultMsg:d.result_msg||''});
+    }
+    if(stop) break;
+  }
+  return JSON.stringify(out);
+}
+
+async function pageCheck(cfg){
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const order=cfg.order, reason=cfg.reason;
+  const kind=cfg.kind==='review'?'review':'quality';
+  const SCENE=kind==='review'?'异常评价':'异常售后', PICK=kind==='review'?'选择评价':'选择订单';
+  const click=(t)=>{const el=[...document.querySelectorAll('div,span,button,li')].find(e=>e.children.length===0&&(e.innerText||'').trim()===t);if(el){(el.closest('button')||el).click();return true}return false};
+  const setV=(el,v)=>{const p=el.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(el,v);el.dispatchEvent(new Event('input',{bubbles:true}))};
+  const oInput=()=>[...document.querySelectorAll('input')].find(x=>{const p=x.placeholder||'';return p.includes('编号')||p==='请输入'||p.includes('多个编号')});
+  const rowOf=()=>[...document.querySelectorAll('tr')].find(r=>(r.innerText||'').includes(order));
+  const okS=click(SCENE);await sleep(800);
+  const okR=click(reason);await sleep(1200);
+  const okP=click(PICK);await sleep(1800);
+  const oi=oInput(); const okI=!!oi; if(oi)setV(oi,order);
+  const okQ=click('查询');await sleep(2200);
+  let tr=rowOf(); for(let k=0;k<8&&!tr;k++){ await sleep(1000); tr=rowOf(); }
+  const diag={step:'预检',order:order,reason:reason,OK场景:okS,OK原因:okR,OK选择器:okP,OK输入:okI,查询:okQ,找到行:!!tr,行文本:tr?(tr.innerText||'').replace(/\s+/g,' ').slice(0,200):''};
+  if(!tr){ click('取消'); await sleep(400); return JSON.stringify({eligible:false,why:'未查到',diag}) }
+  const rt=tr.innerText||'';
+  click('取消'); await sleep(400);
+  if(/无需举报/.test(rt)) return JSON.stringify({eligible:false,why:'无需举报',diag});
+  if(/不可举报/.test(rt)) return JSON.stringify({eligible:false,why:'不可举报',diag});
+  return JSON.stringify({eligible:true,reason:reason,diag});
+}
+
+
+const APPEAL_PACK_DIR = () => path.join(baseDir(),'appeal-pack');
+const _safe = s => String(s||'').replace(/[\\/:*?"<>|\s]/g,'_');
+const REVIEW_DESC='买家仅勾选中评星级，评价无文字、无图片，飞鸽全程无沟通，没有提出任何商品或服务问题，属于无意义无效评价，申请剔除该评价，不参与店铺体验分统计。';
+async function shot(wc, file){
+  try{ const img=await wc.capturePage(); fs.mkdirSync(path.dirname(file),{recursive:true}); fs.writeFileSync(file,img.toPNG()); return file; }catch(e){ return null; }
+}
+async function setFileInputs(wc, files){
+  try{
+    if(!files||!files.length) return 0;
+    try{ wc.debugger.attach('1.3'); }catch(e){}
+    const doc=await wc.debugger.sendCommand('DOM.getDocument',{depth:1});
+    const root=await wc.debugger.sendCommand('DOM.querySelector',{nodeId:doc.root.nodeId,selector:'input[type=file]'});
+    if(!root||!root.nodeId) return 0;
+    await wc.debugger.sendCommand('DOM.setFileInputFiles',{files:files,nodeId:root.nodeId});
+    // 关键：补发事件，否则页面 React 不知道有图，提交按钮可能仍禁用
+    try{ await wc.executeJavaScript('(function(){const a=[...document.querySelectorAll(\'input[type=file]\')];a.forEach(i=>{i.dispatchEvent(new Event(\'input\',{bubbles:true}));i.dispatchEvent(new Event(\'change\',{bubbles:true}));i.dispatchEvent(new Event(\'blur\',{bubbles:true}));});return a.map(i=>(i.files||[]).length);})()',true); }catch(e){}
+    return files.length;
+  }catch(e){ return 0 }
+}
+
+function baseDir(){
+  if(USER_DATA) return USER_DATA;
+  try{ const e=require('electron'), p=e&&e.app&&e.app.getPath&&e.app.getPath('userData'); if(p){ USER_DATA=p; return p; } }catch(err){}
+  return path.join(process.env.HOME||'', 'Library','Application Support','shopdesk');
+}
+function skipFile(){ return path.join(baseDir(),'appeal-reports','skipped.json'); }
+function loadSkips(){ try{ return JSON.parse(fs.readFileSync(skipFile(),'utf8'))||{}; }catch(e){ return {}; } }
+function saveSkip(order,reason,shop){
+  try{ const m=loadSkips(); if(!m[order]){ m[order]={reason:reason,shop:shop||'',at:new Date().toISOString()}; fs.writeFileSync(skipFile(),JSON.stringify(m,null,2)); fs.chmodSync(skipFile(),0o600); } }catch(e){}
+}
+function runPage(wc, fn, ...args){
+  return wc.executeJavaScript('('+fn.toString()+')('+args.map(a=>JSON.stringify(a)).join(',')+')', true);
+}
+
+function createAppeal({store, jobs, app}){
+  try{ USER_DATA = app.getPath('userData'); }catch(e){}
+  try{ process.nextTick(()=>{ USER_DATA = app.getPath('userData'); }); }catch(e){}
+  let state = {id:null, running:false, log:[], startedAt:null, finishedAt:null, summary:null, reportFile:null};
+
+  function persist(){
+    if(!state.id) return;
+    try{
+      const dir = path.join(app.getPath('userData'),'appeal-reports'); fs.mkdirSync(dir,{recursive:true});
+      const file = path.join(dir, 'appeal-'+String(state.startedAt).slice(0,10)+'-'+state.id+'.json');
+      fs.writeFileSync(file, JSON.stringify(state,null,2)); fs.chmodSync(file,0o600);
+      state.reportFile = file;
+    }catch(e){}
+  }
+
+  const dataDir = () => path.join(app.getPath('userData'),'business-data');
+  const reportsDir = () => path.join(app.getPath('userData'),'appeal-reports');
+  const readJson = f => { try{ return JSON.parse(fs.readFileSync(f,'utf8')) }catch(e){ return null } };
+  function handledOrders(recheck){
+    const m=new Set();
+    // 1) 平台确认已有举报记录的订单（results.json）
+    try{ const rf=readJson(path.join(reportsDir(),'results.json')); if(rf&&rf.map) for(const oid of Object.keys(rf.map)) m.add(oid); }catch(e){}
+    // 2) 跳过类（不可举报/无需举报）；recheck=true 时不排除，重新去平台核一遍
+    if(!recheck){ try{ const sk=loadSkips(); for(const o of Object.keys(sk)) m.add(o); }catch(e){}
+      // 平台一个订单只能举报一次：只要历史日志里出现过"已提交"，就永久跳过
+      try{ for(const f of fs.readdirSync(reportsDir()).filter(x=>x.endsWith('.json')&&x!=='results.json'&&x!=='skipped.json')){ const rep=readJson(path.join(reportsDir(),f)); for(const e of (rep&&rep.log)||[]){ if(e.order&&e.result==='已提交') m.add(e.order); } } }catch(e){} }
+    return m;
+  }
+  function unionWorklist(prefix){
+    const map=new Map();
+    try{ const files=fs.readdirSync(dataDir()).filter(f=>f.startsWith('appeal-worklist-'+prefix+'-')&&f.endsWith('.json')).sort();
+      for(const f of files){ for(const r of (readJson(path.join(dataDir(),f))||[])){ if(!r.order_id) continue; const old=map.get(r.order_id); if(old){ map.set(r.order_id,Object.assign({},old,r)); } else map.set(r.order_id,r); } }
+    }catch(e){}
+    return [...map.values()];
+  }
+
+  async function screen(kinds,recheck){
+    // 1) 触发增量筛查（只拉新增，更新 worklist 文件）
+    for(const kind of kinds){
+      const key = kind==='quality' ? 'builtin:quality_returns' : 'builtin:negative_reviews';
+      let job; try{ job = jobs.start(key); }catch(e){ continue; }
+      for(;;){ await sleep(2000); const s = jobs.get(job.id); if(!s || s.status!=='running') break; }
+    }
+    // 2) 处理对象 = 近30天全部未处理候选（积压 + 新增），已提交/不可举报的排除
+    const done = handledOrders(recheck);
+    const d0=new Date(Date.now()-30*86400000), minDate=d0.getFullYear()+'-'+String(d0.getMonth()+1).padStart(2,'0')+'-'+String(d0.getDate()).padStart(2,'0');
+    const out=[];
+    for(const [kind,prefix,argName] of [['quality','quality_returns','quality'],['review','negative_reviews','reviews']]){
+      if(!kinds.includes(argName)) continue;
+      for(const r of unionWorklist(prefix)){ const dd=r.apply_date||r.comment_date||''; if(dd && dd<minDate) continue; if(done.has(r.order_id)) continue; out.push({...r, kind}); }
+    }
+    return out;
+  }
+
+  async function processShop(shopId, shopName, items, submit, log){
+    const ses = session.fromPartition('persist:shop-'+shopId);
+    const mk=()=>{const w=new BrowserWindow({show:false,width:1280,height:900,webPreferences:{...secure,session:ses,backgroundThrottling:false}});w.webContents.setWindowOpenHandler(()=>({action:'deny'}));return w;};
+    const wA=mk(), wB=mk();
+    try{
+      const rA=wA.webContents, rB=wB.webContents;
+      const reportUrl='https://fxg.jinritemai.com/ffa/govern-report/report-create';
+      let pageReady=false, netHooked=false;
+      for(const c of items){
+       try{
+        const flygeUrl = c.flyge_url || ('https://im.jinritemai.com/pc_seller_v2/main/workspace?fromOrder=' + c.order_id);
+        // ① 预检（接口版，秒级；不用开选择器点勾选）
+        if(pageReady!==true){ await rA.loadURL(reportUrl).catch(()=>{}); await sleep(3000); pageReady=true; }
+        const isRev = (c.kind==='review');
+        const codes = isRev ? REVIEW_CODES : [SCENE_CODES.quality];
+        let code=null, status='', lastStatus='', tried=[], cid='', revProduct={};
+        if(isRev){
+          // 评价类：用 comment_list 逐个原因判定 can_select
+          for(const cd of codes){
+            let ck={}; try{ ck=JSON.parse(await runPage(rA,pageReviewCheck,{order:c.order_id,scene:cd.scene,sub:cd.sub})||'{}'); }catch(e){ ck={}; }
+            tried.push({sub:cd.sub,label:cd.label,status:ck.status||'',hover:ck.hover||'',can:ck.can_select});
+            if(ck&&ck.found){ revProduct={product_name:ck.product_name||'',product_id:ck.product_id||''}; }
+            if(ck&&ck.can_select){ code=cd; cid=ck.comment_id||''; status='可举报'; break; }
+            lastStatus = ck.can_select===false ? '不可举报' : (lastStatus||'未查到');
+          }
+          if(!code){
+            const why = (lastStatus==='不可举报'?'不可举报':'未查到');
+            if(why==='不可举报') saveSkip(c.order_id,'不可举报',shopName);
+            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:why,detail:{tried:tried}});
+            continue;
+          }
+          status='可举报';
+        }
+        for(const cd of (code?[]:codes)){
+          let pre={}; try{ pre=JSON.parse(await runPage(rA,pagePreCheckApply,{order:c.order_id,scene:cd.scene,sub:cd.sub})||'{}'); }catch(e){ pre={error:String(e&&e.message||e)}; }
+          let st=''; try{ const dd=(pre&&pre.data)||{}; st=String((dd.sku_orders_check_res||{})[c.order_id]||(dd.orders_check_res||{})[c.order_id]||''); }catch(e){}
+          tried.push({sub:cd.sub,label:cd.label,status:st,code:pre&&pre.code});
+          if(/(不可举报|无需举报|审核中|已举报)/.test(st)){ lastStatus=st; continue; }   // 换下一个原因试
+          if(pre && pre.code===0 && !pre.error){ code=cd; status=st; break; }
+          if(!lastStatus) lastStatus='预检异常';
+        }
+        if(!code){
+          if(/审核中|已举报/.test(lastStatus)){ saveSkip(c.order_id,'已举报过',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'已举报过('+lastStatus+')'}); continue; }
+          if(lastStatus==='无需举报'){ saveSkip(c.order_id,'无需举报',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'无需举报'}); continue; }
+          if(lastStatus==='不可举报'){ saveSkip(c.order_id,'不可举报',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'不可举报',detail:{tried:tried}}); continue; }
+          log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'预检失败',detail:{tried:tried}}); continue;
+        }
+        // ② 飞鸽（窗口B）——装网络钩子便于找消息接口
+        if(!netHooked){ try{ await rB.loadURL('about:blank'); }catch(e){} await installNetHook(rB); netHooked=true; }
+        await rB.loadURL(flygeUrl).catch(()=>{});
+        let f=null;
+        for(let i=0;i<20;i++){ await sleep(1500); try{ f=JSON.parse(await runPage(rB,pageFlyge)||'{}'); }catch(e){ f=null; } if(f&&f.ready) break; }
+        if(!f||!f.ready){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'飞鸽未加载'}); continue; }
+        let net=null; try{ net=JSON.parse(await runPage(rB,pageReadNet)||'{}'); }catch(e){}
+        if(f.buyer_count>0){ saveSkip(c.order_id,'买家有沟通',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'买家有沟通 '+f.buyer_count+' 条',detail:{net:net}}); continue; }
+        // ③ 截图打包（全在窗口B，提前存盘；不碰窗口A）
+        const dir=path.join(APPEAL_PACK_DIR(),_safe(shopName),_safe(c.order_id));
+        const shots=[]; const isReview=c.kind==='review';
+        try{ const p=await shot(rB,path.join(dir,isReview?'①飞鸽聊天记录.png':'①飞鸽聊天记录.png')); if(p)shots.push(p); }catch(e){}
+        if(c.after_sale_id){ try{ await rB.loadURL('https://fxg.jinritemai.com/ffa/maftersale/aftersale/detail-v3?aftersale_id='+c.after_sale_id).catch(()=>{}); await sleep(5000); const p=await shot(rB,path.join(dir,'②售后单详情.png')); if(p)shots.push(p); }catch(e){} }
+        try{ await rB.loadURL('https://fxg.jinritemai.com/ffa/order/detail?order_id='+c.order_id).catch(()=>{}); await sleep(5500); const p=await shot(rB,path.join(dir,'③订单详情.png')); if(p)shots.push(p); }catch(e){}
+
+        // ④ 接口提交（不再点页面）
+        let ap={}; try{ ap=JSON.parse(await runPage(rA, (c.kind==='review'?pageReviewApply:pageApplyNow), {order:c.order_id,scene:code.scene,sub:code.sub,cid:cid,desc:(c.kind==='review'?REVIEW_DESC:(c.report_desc||'')),proofs:[]})||'{}'); }catch(e){ ap={error:String(e&&e.message||e)}; }
+        let resp={}; try{ resp=JSON.parse(ap.resp||'{}'); }catch(e){ resp={}; }
+        const ok = resp && (resp.code===0 || resp.errno===0) && !resp.error;
+        let r={ submitted:!!ok, verified:!!ok, applyResp:resp, reqBody:ap.reqBody, shots:shots.length, status:status, reasonLabel:(code&&code.label)||'' };
+        if(!ok) r.reason = (resp&&(resp.msg||resp.message))||ap.error||'提交失败';
+        if(!r.submitted && (r.skipped==='不可举报'||r.skipped==='无需举报')) saveSkip(c.order_id,r.skipped,shopName);
+        if(!r.submitted && /^买家有沟通/.test(String(r.skipped||''))) saveSkip(c.order_id,'买家有沟通',shopName);
+        // 提交未生效：再回平台查一次该单是否已有举报记录（多半是"已报过"被静默拒绝）
+        if(!r.submitted && String(r.reason||'').indexOf('提交未生效')>=0){
+          try{ const has=await orderHasReport(rB,c.order_id); if(has){ r.alreadyReported=has; saveSkip(c.order_id,'已举报过',shopName); } }catch(e){}
+        }
+        if(!r.submitted && (r.why==='不可举报'||r.why==='无需举报')) saveSkip(c.order_id,r.why,shopName);
+        log({shop:shopName,order:c.order_id,kind:c.kind,result: r.submitted?'已提交':(r.skipped?'跳过':'未提交'),reason: r.submitted?'':(r.skipped||r.reason||r.error||''),detail:r});
+       }catch(err){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'未提交',reason:'异常:'+String(err&&err.message||err)}); }
+      }
+    } finally { if(!wA.isDestroyed()) wA.destroy(); if(!wB.isDestroyed()) wB.destroy(); }
+  }
+
+  async function flow(kinds, submit, shopIds, maxPerShop, recheck, log){
+    try{
+      if(!state.skipSync){ try{ log({step:'同步平台举报记录'}); const sr=await syncResults({days:30,pages:6}); log({step:'同步完成', 订单:sr&&sr.count}); }catch(e){} } else { log({step:'跳过同步（skipSync）'}); }
+      log({step:'开始筛查', kinds});
+      try{ const _sp=skipFile(); let _raw=null,_err=null; try{ _raw=fs.readFileSync(_sp,'utf8'); }catch(e){ _err=String(e.message||e); } let _parsed=null; try{ _parsed=JSON.parse(_raw).constructor.name+':'+Object.keys(JSON.parse(_raw)).length; }catch(e){ _parsed='parse失败:'+String(e.message||e); } log({step:'排除名单诊断', skipFile:_sp, cwd:process.cwd(), 读到字节:_raw?_raw.length:0, err:_err, 解析:_parsed, loadSkips条数:Object.keys(loadSkips()).length}); }catch(e){ log({step:'诊断异常',err:String(e.message||e)}); }
+      const cands = await screen(kinds, recheck);
+      const target = shopIds ? cands.filter(c=>shopIds.includes(c.shop_id)) : cands;
+      log({step:'筛查完成', 候选: target.length, 每店上限: maxPerShop, 重核: !!recheck});
+      const groups = new Map();
+      for(const c of target){ if(!groups.has(c.shop_id)) groups.set(c.shop_id,{name:c.shop,items:[]}); groups.get(c.shop_id).items.push(c); }
+      const shopList=[...groups]; let cursor=0; const CONC=2;
+      const worker=async()=>{ while(cursor<shopList.length){ const [shopId,g]=shopList[cursor++]; const items=maxPerShop>0?g.items.slice(0,maxPerShop):g.items; log({step:'处理店铺', shop:g.name, count:items.length, 共:g.items.length}); await processShop(shopId, g.name, items, submit, log); } };
+      await Promise.all(Array.from({length:Math.min(CONC,shopList.length)},worker));
+    }catch(e){ log({step:'异常', error:String(e.message||e)}); }
+    state.running=false; state.finishedAt=new Date().toISOString();
+    state.summary = {candidates: (state.log.find(x=>x.step==='筛查完成')||{})['候选']||0,
+      submitted: state.log.filter(x=>x.result==='已提交').length,
+      skipped: state.log.filter(x=>x.result==='跳过').length,
+      failed: state.log.filter(x=>x.result==='未提交'||x.error).length};
+    try{
+      const dir = path.join(app.getPath('userData'),'appeal-reports'); fs.mkdirSync(dir,{recursive:true});
+      const file = path.join(dir, 'appeal-'+state.startedAt.slice(0,10)+'-'+state.id+'.json');
+      fs.writeFileSync(file, JSON.stringify(state,null,2)); fs.chmodSync(file,0o600);
+      state.reportFile = file;
+    }catch(e){}
+    persist();
+  }
+
+  function run({kinds=['quality','reviews'], submit=true, shopIds=null, maxPerShop=0, recheck=false, skipSync=false}={}){
+    if(state.running) return {error:'已有自动申诉任务在运行', id:state.id};
+    const _skip=!!skipSync;
+    state = {id:String(Date.now()), running:true, log:[], startedAt:new Date().toISOString(), finishedAt:null, summary:null, reportFile:null, skipSync:_skip};
+    const log = e => { state.log.push({at:new Date().toISOString(), ...e}); persist(); };
+    flow(kinds, submit, shopIds, maxPerShop, recheck, log);   // 后台执行，不阻塞
+    return {id:state.id, started:true};
+  }
+
+  async function orderHasReport(wc, order){
+    try{ return await runPage(wc, pageHasReport, {order:order}); }catch(e){ return null; }
+  }
+
+  async function syncResults({shopIds=null, days=30, pages=12}={}){
+    const shops=store.items.filter(s=>s.platform==='抖店'&&(!shopIds||shopIds.includes(s.id)));
+    const map={}; let shopsOk=0;
+    for(const shop of shops){
+      const ses=session.fromPartition('persist:shop-'+shop.id);
+      const w=new BrowserWindow({show:false,width:1024,height:800,webPreferences:{...secure,session:ses,backgroundThrottling:false}});
+      try{
+        await w.loadURL('https://fxg.jinritemai.com/ffa/govern-report/report-list').catch(()=>{});
+        await sleep(4000);
+        const arr=JSON.parse(await runPage(w.webContents,pageSyncReports,{days,pages})||'[]');
+        shopsOk++;
+        for(const r of arr){ for(const oid of (r.orders||[])) if(oid) map[oid]={reportId:r.id,auditStatus:r.auditStatus,resultMsg:r.resultMsg,auditTime:r.auditTime,scene:r.scene,sub:r.sub,created:r.created,shop:shop.name}; }
+      }catch(e){}
+      finally{ if(!w.isDestroyed()) w.destroy(); }
+    }
+    try{
+      const dir=path.join(app.getPath('userData'),'appeal-reports'); fs.mkdirSync(dir,{recursive:true});
+      const f=path.join(dir,'results.json');
+      let prev={}; try{ prev=JSON.parse(fs.readFileSync(f,'utf8')).map||{}; }catch(e){}
+      const merged={...prev,...map};
+      const scenes={}; for(const v of Object.values(merged)){ const k=v.scene||'?'; scenes[k]=(scenes[k]||0)+1; }
+      fs.writeFileSync(f, JSON.stringify({updatedAt:new Date().toISOString(),shopsOk,count:Object.keys(merged).length,thisRun:Object.keys(map).length,scenes,map:merged},null,2)); fs.chmodSync(f,0o600);
+      return {file:f, shopsOk, count:Object.keys(merged).length, thisRun:Object.keys(map).length, scenes};
+    }catch(e){ return {error:String(e.message||e)} }
+  }
+
+  const snapshot = () => JSON.parse(JSON.stringify(state));
+  return {run, snapshot, syncResults};
+}
+
+module.exports = {createAppeal};
