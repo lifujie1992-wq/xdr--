@@ -66,6 +66,33 @@ if [ -d collectors ]; then
   echo "   已同步 $(ls "$DEST/builtin" 2>/dev/null | wc -l | tr -d ' ') 个采集模块文件"
 fi
 
+echo "④c 同步定时任务（plist + daily-appeal.sh）"
+LA="$HOME/Library/LaunchAgents"
+APPD="$HOME/Library/Application Support/shopdesk"
+mkdir -p "$LA" "$APPD"
+CHANGED_APPEAL=0
+for f in tools/*.plist; do
+  [ -f "$f" ] || continue
+  b="$(basename "$f")"
+  # 路径替换成当前用户
+  sed "s|/Users/zhaoxiaozhong|$HOME|g" "$f" > "/tmp/_plist_$b"
+  if ! cmp -s "/tmp/_plist_$b" "$LA/$b" 2>/dev/null; then
+    cp "/tmp/_plist_$b" "$LA/$b"
+    echo "   更新 $b"
+    case "$b" in
+      *appeal*) CHANGED_APPEAL=1;;
+      *autodeploy*) (sleep 3; launchctl unload "$LA/$b" 2>/dev/null; launchctl load -w "$LA/$b" 2>/dev/null) >/dev/null 2>&1 & ;;
+    esac
+  fi
+  rm -f "/tmp/_plist_$b"
+done
+[ -f tools/daily-appeal.sh ] && { cp tools/daily-appeal.sh "$APPD/daily-appeal.sh"; chmod +x "$APPD/daily-appeal.sh"; }
+if [ "$CHANGED_APPEAL" = "1" ]; then
+  launchctl unload "$LA/local.shopdesk.appeal.plist" 2>/dev/null
+  launchctl load -w "$LA/local.shopdesk.appeal.plist" 2>/dev/null
+  echo "   每日申诉任务已重载"
+fi
+
 echo "⑤ 重签名（ad-hoc）"
 codesign --force --deep --sign - "$APP" >/dev/null 2>&1 && echo "   OK"
 
