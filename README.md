@@ -64,6 +64,6 @@ bash build.sh                 # 构建 + 部署 + 重启 App
 支持日期筛选、分页、CSV 导出、AI提交标记、商品名/编码。
 
 ## 定时任务
-`~/Library/LaunchAgents/local.shopdesk.appeal.plist` → 每天 9:00
+`~/Library/LaunchAgents/local.shopdesk.appeal.plist` → 每天 7:00（运行机器本地时间）
 调用 `daily-appeal.sh` → 触发申诉 + 同步平台审核结果。
 
