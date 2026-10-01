@@ -519,7 +519,7 @@ function createAppeal({store, jobs, app}){
         if(!submit){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'演练模式(未提交)',detail:{status:status,shots:shots.length}}); continue; }
         let ap={}; try{ ap=JSON.parse(await runPage(rA, (c.kind==='review'?pageReviewApply:pageApplyNow), {order:c.order_id,scene:code.scene,sub:code.sub,cid:cid,desc:(c.kind==='review'?REVIEW_DESC:(c.report_desc||'')),proofs:[]})||'{}'); }catch(e){ ap={error:String(e&&e.message||e)}; }
         let resp={}; try{ resp=JSON.parse(ap.resp||'{}'); }catch(e){ resp={}; }
-        const ok = resp && (resp.code===0 || resp.errno===0) && !resp.error;
+        const ok = !!(resp && resp.code===0 && resp.data && resp.data.id);   // 必须拿到举报ID才算成功
         let r={ submitted:!!ok, verified:!!ok, applyResp:resp, reqBody:ap.reqBody, shots:shots.length, status:status, reasonLabel:(code&&code.label)||'' };
         if(!ok) r.reason = (resp&&(resp.msg||resp.message))||ap.error||'提交失败';
         if(!r.submitted && (r.skipped==='不可举报'||r.skipped==='无需举报')) saveSkip(c.order_id,r.skipped,shopName);
