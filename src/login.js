@@ -1,6 +1,6 @@
 // Conservative UI signals; platform DOM changes may require adapter updates.
 const platforms={
- '抖店':{url:'https://fxg.jinritemai.com/login/common',hosts:['fxg.jinritemai.com']},
+ '抖店':{url:'https://fxg.jinritemai.com/login/common',hosts:['fxg.jinritemai.com','im.jinritemai.com']},
  '拼多多':{url:'https://mms.pinduoduo.com/',hosts:['mms.pinduoduo.com']},
  '快手':{url:'https://s.kwaixiaodian.com/',hosts:['s.kwaixiaodian.com']},
  '天猫':{url:'https://myseller.taobao.com/',hosts:['myseller.taobao.com','seller.tmall.com']},

@@ -10,29 +10,40 @@ const secure = {nodeIntegration:false, contextIsolation:true, sandbox:true};
 // ---- 在店铺页面里执行的脚本（自包含，通过 executeJavaScript 注入）----
 async function pageFlyge(){
   const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  // 会话列表容器：出现即代表飞鸽已加载（空会话也会有它）
+  const listEl=()=>document.querySelector('.messageList');
   const cnt=()=>document.querySelectorAll('.msgItemWrap').length;
+  const buyerCnt=()=>document.querySelectorAll('.messageNotMe').length;
   const findScroller=()=>{
     let best=null;
     for(const el of document.querySelectorAll('div')){
-      try{ if(el.scrollHeight>el.clientHeight+20 && el.querySelector('.msgItemWrap')) best=el; }catch(e){}
+      try{ if(el.scrollHeight>el.clientHeight+20 && (el.querySelector('.msgItemWrap')||/messageList/.test(String(el.className)))) best=el; }catch(e){}
     }
     return best||document.scrollingElement||document.documentElement;
   };
-  for(let i=0;i<10;i++){ if(cnt()>0) break; await sleep(800); }   // 等首次加载
+  // 等飞鸽框架加载：出现 .messageList 就算成功（买家没发过消息时里面是空的）
+  for(let i=0;i<25;i++){ if(listEl()||cnt()>0) break; await sleep(1000); }
+  if(!listEl()&&cnt()===0){
+    // 兜底：等页面出现会话相关文案
+    const body=document.body?document.body.innerText:'';
+    const ok=/messageList|会话|已经到顶|暂无会话|为您推荐/.test(body);
+    if(!ok) return JSON.stringify({ready:false,total:0,buyer_count:0,reason:'飞鸽页面未就绪'});
+  }
+  // 往上滚加载历史
   let prev=-1,stable=0;
-  for(let i=0;i<25;i++){                                          // 不断往上滚，加载历史消息
-    const s=findScroller();
-    try{ s.scrollTop=0; s.dispatchEvent(new Event('scroll',{bubbles:true})); }catch(e){}
+  for(let i=0;i<25;i++){
+    const sc=findScroller();
+    try{ sc.scrollTop=0; sc.dispatchEvent(new Event('scroll',{bubbles:true})); }catch(e){}
     await sleep(700);
     const c=cnt();
     if(c===prev) stable++; else stable=0;
     prev=c;
-    if(stable>=3) break;                                          // 数量稳定 → 已到顶
+    if(stable>=3) break;
   }
   const wraps=[...document.querySelectorAll('.msgItemWrap')];
-  const msgs=wraps.map(w=>({buyer:!!w.querySelector('.messageNotMe'),txt:(w.innerText||'').replace(/\s+/g,' ').trim().slice(0,200)}));
-  const buyer=msgs.filter(m=>m.buyer);
-  return JSON.stringify({ready:wraps.length>0,total:msgs.length,buyer_count:buyer.length,buyer_msgs:buyer.map(m=>m.txt).slice(0,50)});
+  const buyer=[...document.querySelectorAll('.messageNotMe')];
+  const msgs=buyer.map(w=>({txt:(w.innerText||'').replace(/\s+/g,' ').trim().slice(0,200)}));
+  return JSON.stringify({ready:true,total:wraps.length,buyer_count:buyer.length,buyer_msgs:msgs.map(m=>m.txt).slice(0,50)});
 }
 
 async function pageFinalize(cfg){
@@ -505,6 +516,7 @@ function createAppeal({store, jobs, app}){
         try{ await rB.loadURL('https://fxg.jinritemai.com/ffa/order/detail?order_id='+c.order_id).catch(()=>{}); await sleep(5500); const p=await shot(rB,path.join(dir,'③订单详情.png')); if(p)shots.push(p); }catch(e){}
 
         // ④ 接口提交（不再点页面）
+        if(!submit){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'演练模式(未提交)',detail:{status:status,shots:shots.length}}); continue; }
         let ap={}; try{ ap=JSON.parse(await runPage(rA, (c.kind==='review'?pageReviewApply:pageApplyNow), {order:c.order_id,scene:code.scene,sub:code.sub,cid:cid,desc:(c.kind==='review'?REVIEW_DESC:(c.report_desc||'')),proofs:[]})||'{}'); }catch(e){ ap={error:String(e&&e.message||e)}; }
         let resp={}; try{ resp=JSON.parse(ap.resp||'{}'); }catch(e){ resp={}; }
         const ok = resp && (resp.code===0 || resp.errno===0) && !resp.error;

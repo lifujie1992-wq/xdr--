@@ -101,10 +101,18 @@ pkill -f "店铺工作台" 2>/dev/null || true
 sleep 3
 rm -f "$HOME/Library/Application Support/shopdesk/agent-bridge.json"
 open "$APP"
-sleep 15
-if [ -f "$HOME/Library/Application Support/shopdesk/agent-bridge.json" ]; then
-  echo "✅ 部署完成，本机接口已就绪"
+OK=0
+for i in $(seq 1 12); do
+  sleep 5
+  if [ -f "$HOME/Library/Application Support/shopdesk/agent-bridge.json" ]; then OK=1; break; fi
+done
+if [ "$OK" = "1" ]; then
+  echo "✅ 部署完成，本机接口已就绪（等待 $((i*5)) 秒）"
 else
-  echo "⚠️ 接口未起来，可能需要手动确认（退出重开 App）"
+  echo "⚠️ 接口 60 秒内未就绪，尝试再次重启…"
+  pkill -9 -f "店铺工作台" 2>/dev/null; sleep 4
+  rm -f "$HOME/Library/Application Support/shopdesk/agent-bridge.json"
+  open "$APP"; sleep 20
+  [ -f "$HOME/Library/Application Support/shopdesk/agent-bridge.json" ] && echo "✅ 重试成功" || echo "❌ 接口仍未就绪，请远程查看 App 界面"
 fi
 rm -rf "$WORK"
