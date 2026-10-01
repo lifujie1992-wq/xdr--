@@ -424,7 +424,9 @@ function createAppeal({store, jobs, app}){
     // 2) 跳过类（不可举报/无需举报）；recheck=true 时不排除，重新去平台核一遍
     if(!recheck){ try{ const sk=loadSkips(); for(const o of Object.keys(sk)) m.add(o); }catch(e){}
       // 平台一个订单只能举报一次：只要历史日志里出现过"已提交"，就永久跳过
-      try{ for(const f of fs.readdirSync(reportsDir()).filter(x=>x.endsWith('.json')&&x!=='results.json'&&x!=='skipped.json')){ const rep=readJson(path.join(reportsDir(),f)); for(const e of (rep&&rep.log)||[]){ if(e.order&&e.result==='已提交') m.add(e.order); } } }catch(e){} }
+      try{ for(const f of fs.readdirSync(reportsDir()).filter(x=>x.endsWith('.json')&&x!=='results.json'&&x!=='skipped.json')){ const rep=readJson(path.join(reportsDir(),f)); for(const e of (rep&&rep.log)||[]){ if(!e.order||e.result!=='已提交') continue; const dd=e.detail||{};
+          const real = (dd.applyResp&&dd.applyResp.data&&dd.applyResp.data.id) || dd.verified===true || dd.reportId;
+          if(real) m.add(e.order); } } }catch(e){} }
     return m;
   }
   function unionWorklist(prefix){
