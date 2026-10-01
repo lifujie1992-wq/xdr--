@@ -24,14 +24,14 @@ case "$token" in *[!0-9a-f]*|'') say "token 无效"; exit 1;; esac
 payload="${SHOPDESK_APPEAL_PAYLOAD:-}"
 if [ -z "$payload" ]; then payload='{"method":"auto_appeal_start","args":{"kinds":["quality","reviews"],"submit":true}}'; fi
 resp=$(printf 'header = "Authorization: Bearer %s"\n' "$token" | \
-  /usr/bin/curl --config - --silent --show-error --max-time 60 --noproxy '*' \
+  /usr/bin/curl --config - --silent --show-error --max-time 900 --noproxy '*' \
   --header 'Content-Type: application/json' --header 'X-ShopDesk-Client: cron' \
   --data-binary "$payload" \
   "http://127.0.0.1:$port/call" 2>>"$LOG")
 say "触发申诉: $resp"
 # 同步平台审核结果
 resp2=$(printf 'header = "Authorization: Bearer %s"\n' "$token" | \
-  /usr/bin/curl --config - --silent --show-error --max-time 60 --noproxy '*' \
+  /usr/bin/curl --config - --silent --show-error --max-time 900 --noproxy '*' \
   --header 'Content-Type: application/json' --header 'X-ShopDesk-Client: cron' \
   --data-binary '{"method":"appeal_sync_results","args":{"days":30}}' \
   "http://127.0.0.1:$port/call" 2>>"$LOG")
