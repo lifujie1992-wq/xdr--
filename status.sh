@@ -3,11 +3,18 @@
 BRIDGE="$HOME/Library/Application Support/shopdesk/agent-bridge.json"
 P=$(/usr/libexec/PlistBuddy -c "Print :port" "$BRIDGE" 2>/dev/null)
 T=$(/usr/libexec/PlistBuddy -c "Print :token" "$BRIDGE" 2>/dev/null)
-curl -s --max-time 10 --noproxy '*' -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
-  -d '{"method":"auto_appeal_status"}' "http://127.0.0.1:$P/call" 2>/dev/null | python3 -c "
+R=""
+for i in 1 2 3 4; do
+  R=$(curl -s --max-time 20 --noproxy '*' -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
+    -d '{"method":"auto_appeal_status"}' "http://127.0.0.1:$P/call" 2>/dev/null)
+  [ -n "$R" ] && break
+  sleep 3
+done
+echo "$R" | python3 -c "
 import json,sys,datetime
 from collections import Counter
-r=json.load(sys.stdin)['result']
+try: r=json.load(sys.stdin)['result']
+except Exception: print('(接口暂时没响应，App 可能在忙批量预查，30 秒后再试)'); sys.exit(0)
 print('状态 :', '运行中' if r.get('running') else '已结束')
 print('开始 :', (r.get('startedAt') or '')[11:19], ' 结束:', (r.get('finishedAt') or '—')[11:19])
 d=[e for e in r.get('log',[]) if e.get('order')]
