@@ -210,7 +210,8 @@ function kindCards(bk){
   const row=(t,v,cls)=>'<div class="krow"><span>'+t+'</span><b class="'+(cls||'')+'">'+v+'</b></div>';
   return '<div class="kcards">'+['品退','中差评'].map(k=>{const v=bk[k]||{};
     return '<div class="kcard"><div class="kname"><i></i>'+k+'</div>'
-     + row('总数',(v.total||0)+' 条')
+     + row('今日新增',(v.today||0)+' 条')
+     + row('近30天总数',(v.total||0)+' 条')
      + row('已申请',(v.sub||0)+' 条')
      + row('通过',(v.pass||0)+' 条','gd')
      + row('通过率',(v.rate||0)+'%',(v.rate>=50?'gd':'bd'))
@@ -354,8 +355,8 @@ function createAppealWeb({app, appeal}){
     const qTotal=data.items.filter(i=>i.kind==='品退').length, rTotal=data.items.filter(i=>i.kind==='中差评').length;
     const pendByShop={}; for(const i of todoItems){ const k=i.shop||'?'; pendByShop[k]=(pendByShop[k]||0)+1; }
     const manualByShop={}; for(const i of data.items){ if(i.reason&&/（平台判定不可举报）|待同步/.test(i.reason)) continue; }
-    const byKind={}; for(const k of ['品退','中差评']) byKind[k]={total:0,sub:0,pass:0,reject:0,notNeed:0,notReportable:0,pending:0,rate:0};
-    for(const it of data.items){ const k=it.kind; if(!byKind[k]) continue; byKind[k].total++; if(it.status==='不可举报')byKind[k].notReportable++; else if(it.status==='无需举报')byKind[k].notNeed++; }
+    const byKind={}; for(const k of ['品退','中差评']) byKind[k]={total:0,today:0,sub:0,pass:0,reject:0,notNeed:0,notReportable:0,pending:0,rate:0};
+    for(const it of data.items){ const k=it.kind; if(!byKind[k]) continue; byKind[k].total++; if(it.date===today)byKind[k].today++; if(it.status==='不可举报')byKind[k].notReportable++; else if(it.status==='无需举报')byKind[k].notNeed++; }
     for(const [oid,a] of Object.entries(results)){ const k=(a.scene||'').indexOf('售后')>=0?'品退':((a.scene||'').indexOf('评价')>=0?'中差评':null); if(!k||!byKind[k]) continue; byKind[k].sub++; if(a.auditStatus===6)byKind[k].pass++; else if(a.auditStatus===3)byKind[k].reject++; else byKind[k].pending++; }
     for(const k of Object.keys(byKind)){ const v=byKind[k]; v.rate=(v.pass+v.reject)?Math.round(v.pass/(v.pass+v.reject)*100):0; }
     const todaySub=rows.filter(r=>(r.at||'').slice(0,10)===today && r.auditStatus!==undefined).length;
