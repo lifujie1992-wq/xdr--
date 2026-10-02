@@ -87,7 +87,11 @@ for f in tools/*.plist; do
   rm -f "/tmp/_plist_$b"
 done
 [ -f tools/daily-appeal.sh ] && { cp tools/daily-appeal.sh "$APPD/daily-appeal.sh"; chmod +x "$APPD/daily-appeal.sh"; }
-if [ "$CHANGED_APPEAL" = "1" ]; then
+# 若存在关闭开关，则只更新文件、不启用定时任务
+if [ -f "$APPD/TIMERS_OFF" ]; then
+  launchctl unload -w "$LA/local.shopdesk.appeal.plist" 2>/dev/null || true
+  echo "   ⏸ 检测到 TIMERS_OFF，定时任务保持关闭（文件已更新，但不加载）"
+elif [ "$CHANGED_APPEAL" = "1" ]; then
   launchctl unload "$LA/local.shopdesk.appeal.plist" 2>/dev/null
   launchctl load -w "$LA/local.shopdesk.appeal.plist" 2>/dev/null
   echo "   每日申诉任务已重载"
