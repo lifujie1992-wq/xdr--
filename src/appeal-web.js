@@ -225,35 +225,6 @@ function drawSeg(){
 }
 
 function drawList(){
-  const kind=$('fkind').value, st=$('fstatus').value, q=$('fq').value.trim().toLowerCase();
-  const d1=$('fd1').value, d2=$('fd2').value, rg=$('frange').value;
-  let from=d1, to=d2;
-  if(rg){ const d=new Date(); d.setDate(d.getDate()-Number(rg)); const pad=n=>String(n).padStart(2,'0');
-    from=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
-  const rows=DATA.items.filter(x=>{
-    if(!x.status) return false;
-    if(kind&&x.kind!==kind) return false;
-    if(st&&x.status!==st) return false;
-    if(q){ const hay=((x.shop||'')+' '+(x.order_id||'')+' '+(x.product_name||'')+' '+(x.product_id||'')).toLowerCase(); if(hay.indexOf(q)<0) return false }
-    const d=String(x.date||'').slice(0,10);
-    if(from&&d&&d<from) return false;
-    if(to&&d&&d>to) return false;
-    return true;
-  });
-  const size=Number(($('fpage')&&$('fpage').value)||50);
-  const pages=size>0?Math.max(1,Math.ceil(rows.length/size)):1;
-  if(PAGE>pages) PAGE=pages; if(PAGE<1) PAGE=1;
-  const view=size>0?rows.slice((PAGE-1)*size,PAGE*size):rows;
-  $('fcount').textContent='共 '+rows.length+' 条';
-  if(!rows.length){ $('listwrap').innerHTML='<div class="empty">没有符合条件的记录。</div>'; $('pager').innerHTML=''; return }
-  $('listwrap').innerHTML='<table class="list"><colgroup><col class="c1"><col class="c4"><col class="c2"><col class="c5"><col class="c9"><col class="c10"></colgroup>'
-   +'<thead><tr><th>店铺 / 类型 / 日期</th><th>订单号 / 商品</th><th>状态</th><th>状态原因</th><th>提交人</th><th>审核结果</th></tr></thead><tbody>'
-   +view.map(x=>'<tr>'+'<td class="shopcell"><b>'+esc(x.shop)+'</b><br>'+kindBd(x.kind)+' <span class="sub">'+esc(x.date)+'</span></td>'+'<td class="ordcell"><span class="mono">'+esc(x.order_id)+'</span><br><span class="sub">'+esc(x.product_name||'')+'</span>'+(x.product_id?'<span class="sub"> · 编码 '+esc(x.product_id)+'</span>':'')+'</td>'+'<td>'+badge(x.status)+'</td>'+'<td class="why" title="'+esc(x.why||'')+'">'+esc(x.why||'—')+'</td>'+'<td>'+(x.submitter?'<span class="tag">'+esc(x.submitter)+'</span>':'')+'</td>'+auditCell(x)+'</tr>').join('')+'</tbody></table>';
-  $('pager').innerHTML= size>0 && pages>1
-    ? '<button data-pg="1">首页</button><button data-pg="'+(PAGE-1)+'">上一页</button><span class="hint">第 '+PAGE+' / '+pages+' 页 · 每页 '+size+' 条</span><button data-pg="'+(PAGE+1)+'">下一页</button><button data-pg="'+pages+'">末页</button>'
-    : '<span class="hint">共 '+rows.length+' 条</span>';
-  $('pager').querySelectorAll('button[data-pg]').forEach(b=>b.onclick=()=>{ const p=Number(b.dataset.pg); if(p>=1&&p<=Math.max(1,pages)){ PAGE=p; drawList(); } });
-}
 const card=(t,v,u,cls)=>'<div class="card '+(cls||'')+'"><span>'+esc(t)+'</span><b>'+v+'</b><small>'+esc(u||'')+'</small></div>';
 function barTable(map,label){const e=Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,15);if(!e.length)return '<div class="empty">暂无</div>';const max=e[0][1];return '<table><thead><tr><th>'+esc(label)+'</th><th>数量</th><th></th></tr></thead><tbody>'+e.map(([k,v])=>'<tr><td>'+esc(k)+'</td><td>'+v+'</td><td><div style="height:8px;background:#e6ebf5;border-radius:4px"><div style="height:8px;width:'+Math.round(v/max*100)+'%;background:#2563eb;border-radius:4px"></div></div></td></tr>').join('')+'</tbody></table>'}
 function rejTopTable(){const e=Object.entries(STATS.review.rejTop).sort((a,b)=>b[1]-a[1]);if(!e.length)return '<div class="empty">暂无驳回</div>';return '<table><thead><tr><th>驳回理由</th><th>条数</th></tr></thead><tbody>'+e.map(([k,v])=>'<tr><td class="rej">'+esc(k)+'</td><td>'+v+'</td></tr>').join('')+'</tbody></table>'}
