@@ -615,9 +615,6 @@ function createAppeal({store, jobs, app}){
         for(const sc of Object.keys(ENUM)) for(const sub of (ENUM[sc].subs||[])) CODE2SCENE[sub.code]={scene:sc,name:sub.name};
         log({step:'举报原因枚举', 场景数:Object.keys(ENUM).length, 原因数:Object.keys(CODE2SCENE).length});
       }catch(e){ log({step:'枚举获取失败', err:String(e.message||e).slice(0,60)}); }
-      for(const c of items){
-       try{
-        const flygeUrl = c.flyge_url || ('https://im.jinritemai.com/pc_seller_v2/main/workspace?fromOrder=' + c.order_id);
         // ⓪ 批量预查：平台允许哪些举报原因（漏斗第②层，0.3秒/单）
         const SUBS=((ENUM&&ENUM['report_type_unusual_comment']&&ENUM['report_type_unusual_comment'].subs)||[]);
         const ALLOWED={};
@@ -634,6 +631,10 @@ function createAppeal({store, jobs, app}){
           log({step:'批量预查完成', 单数:Object.keys(ALLOWED).length, 平台允许:Object.values(ALLOWED).filter(x=>x.ok&&x.ok.length).length});
         }
 
+
+      for(const c of items){
+       try{
+        const flygeUrl = c.flyge_url || ('https://im.jinritemai.com/pc_seller_v2/main/workspace?fromOrder=' + c.order_id);
         // ① 飞鸽核查（先拿聊天记录，供"像运营一样判断"用）
         if(pageReady!==true){ await rA.loadURL(reportUrl).catch(()=>{}); await sleep(2500); pageReady=true; }
         if(!netHooked){ try{ await rB.loadURL('about:blank'); }catch(e){} await installNetHook(rB); netHooked=true; }
