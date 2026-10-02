@@ -118,14 +118,26 @@ h2{font-size:14px;margin:22px 0 10px}
   <div id="boss" class="hide"></div>
   <div id="review" class="hide"></div>
   <div id="list" class="hide">
-    <div class="tools" style="margin:0 0 10px"><select id="fkind"><option value="">全部类型</option><option>品退</option><option>中差评</option></select>
-      <select id="fstatus"><option value="">全部状态</option><option>已举报</option><option>举报成功</option><option>举报失败</option><option>不可举报</option><option>需转人工</option><option>未处理</option></select>
-      <select id="ftag"><option value="">全部标签</option><option>不可举报</option><option>无需举报</option><option>已举报过</option><option>买家有沟通</option><option>需人工介入</option><option>需卖家提供质量证明</option><option>已驳回</option><option>审核中</option></select>
-      <input id="fd1" type="date" title="开始日期"><span class="hint">~</span><input id="fd2" type="date" title="结束日期">
-      <select id="frange"><option value="">全部时间</option><option value="7">近 7 天</option><option value="30">近 30 天</option><option value="90">近 90 天</option></select>
-      <input id="fq" placeholder="搜索店铺/订单号/商品名/编码…">
-      <select id="fpage"><option value="50">50 条/页</option><option value="100">100 条/页</option><option value="300">300 条/页</option><option value="0">全部</option></select>
-      <span id="fcount" class="hint"></span></div>
+    <div class="fbar">
+      <div class="chips" id="chips"></div>
+      <div class="frow">
+        <select id="fshop" title="店铺"></select>
+        <div class="seg" id="fkindSeg"></div>
+        <select id="frange">
+          <option value="">全部时间</option><option value="1">今天</option><option value="7">近 7 天</option>
+          <option value="30">近 30 天</option><option value="90">近 90 天</option><option value="custom">自定义…</option>
+        </select>
+        <span id="fcustom" class="hide"><input id="fd1" type="date" title="开始"><span class="hint">~</span><input id="fd2" type="date" title="结束"></span>
+        <input id="fq" placeholder="🔍 搜索订单号 / 商品 / 店铺">
+      </div>
+      <div class="fmeta">
+        <span id="fcount" class="hint"></span>
+        <a id="clearf" class="lnk">清空筛选</a>
+        <span class="grow"></span>
+        <span class="hint">每页</span>
+        <select id="fpage"><option value="50">50</option><option value="100">100</option><option value="300">300</option><option value="0">全部</option></select>
+      </div>
+    </div>
     <div id="listwrap"></div>
     <div id="pager" class="pager"></div>
   </div>
