@@ -28,6 +28,7 @@ table.list col.c7{width:150px}table.list col.c8{width:94px}table.list col.c9{wid
 .pager button{padding:6px 12px;font-size:12px;background:#fff;border:1px solid #e2e8f0}
 .pager button:hover{background:#eff6ff;border-color:#93c5fd}
 .badge{display:inline-block;white-space:nowrap;font-size:11px;padding:3px 8px;border-radius:6px}
+.b-human{background:#fdf0e6;color:#c2662b;font-weight:600}
 .b-done{background:#eaf6f1;color:#2f8a6d}.b-no{background:#fdeceb;color:#c0392b}.b-warn{background:#fdf9f0;color:#b3762a}.b-ok{background:#eaf6f1;color:#2f8a6d}.b-wait{background:#eef2f7;color:#64748b}
 th,td{padding:9px 10px;border-bottom:1px solid #eef2f7;text-align:left;font-size:12px;vertical-align:top}
 th{background:#f1f5f9;color:#64748b;font-weight:500;position:sticky;top:0}
@@ -101,7 +102,7 @@ const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;',
 const pct=(a,b)=>(a+b)?Math.round(a/(a+b)*100):0;
 const RESULTS=(typeof DATA!=='undefined'&&DATA&&DATA._results)||{};
 function auditState(oid){const v=RESULTS&&RESULTS[oid];if(!v)return null;const a=v.auditStatus;if(a===6)return '已通过';if(a===3)return '已驳回';return '举报中';}
-function badge(s){const M={'已举报':'b-done','举报中':'b-wait','已通过':'b-ok','已驳回':'b-no','不可举报':'b-no','无需举报':'b-warn','已举报过':'b-done','买家有沟通':'b-warn'};const c=M[s]||'b-wait';return '<span class="badge '+c+'">'+esc(s||'—')+'</span>'}
+function badge(s){const M={'已举报':'b-done','举报中':'b-wait','已通过':'b-ok','已驳回':'b-no','不可举报':'b-no','无需举报':'b-warn','已举报过':'b-done','买家有沟通':'b-warn'};const c=/^需人工介入/.test(s||'')?'b-human':(M[s]||'b-wait');return '<span class="badge '+c+'">'+esc(s||'—')+'</span>'}
 function auditCell(x){const tip=esc((x.auditMsg||'').replace(/\s+/g,' ').slice(0,200));if(!/^(已举报|举报中|已通过|已驳回)$/.test(x.status||''))return '<td></td>';if(x.auditStatus===3)return '<td class="rej" title="'+tip+'">❌ 驳回：'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0])+'</td>';if(x.auditStatus===6)return '<td class="okc">✅ 审核通过</td>';if(x.auditStatus==null)return '<td class="wait">待同步</td>';return '<td class="wait">审核中</td>'}
 function drawTabs(){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===TAB));['ops','boss','review','list'].forEach(t=>$(t).classList.toggle('hide',t!==TAB))}
 function drawOps(){
@@ -268,7 +269,7 @@ function createAppealWeb({app, appeal}){
     const SKIPMAP={'不可举报':'不可举报','无需举报':'无需举报','已举报过':'已举报过','买家有沟通':'买家有沟通','飞鸽未加载':'待重试·飞鸽未加载','未查到':'待重试·未查到','勾选失败':'待重试·勾选失败'};
     for(const e of logs){ if(!e.order) continue;
       if(e.result==='已提交'){ if(!done.has(e.order)) done.set(e.order,{status:'已举报',at:e.at,shop:e.shop,kind:e.kind,submitter:'AI提交'}); else Object.assign(done.get(e.order),{status:'已举报',submitter:'AI提交'}); }
-      else if(e.result==='跳过'||e.result==='未提交'){ const k=String(e.reason||'').split(' ')[0].split('(')[0]; const st=SKIPMAP[k]; if(st&&!done.has(e.order)) done.set(e.order,{status:st,at:e.at,shop:e.shop,kind:e.kind}); }
+      else if(e.result==='跳过'||e.result==='未提交'){ const k=String(e.reason||'').split(' ')[0].split('(')[0]; const st=(k.indexOf('需人工介入')===0)?k:SKIPMAP[k]; if(st&&!done.has(e.order)) done.set(e.order,{status:st,at:e.at,shop:e.shop,kind:e.kind}); }
     }
     const items=[]; const seen=new Set();
     const d0=new Date(Date.now()-30*86400000), minDate=d0.getFullYear()+'-'+String(d0.getMonth()+1).padStart(2,'0')+'-'+String(d0.getDate()).padStart(2,'0');

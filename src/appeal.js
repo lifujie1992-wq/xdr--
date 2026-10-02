@@ -43,7 +43,17 @@ async function pageFlyge(){
   const wraps=[...document.querySelectorAll('.msgItemWrap')];
   const buyer=[...document.querySelectorAll('.messageNotMe')];
   const msgs=buyer.map(w=>({txt:(w.innerText||'').replace(/\s+/g,' ').trim().slice(0,200)}));
-  return JSON.stringify({ready:true,total:wraps.length,buyer_count:buyer.length,buyer_msgs:msgs.map(m=>m.txt).slice(0,50)});
+  // 买家是否发过图片/视频/文件（有则必须人工介入）
+  let buyerImgs=0;
+  for(const b of buyer){
+    try{
+      const imgs=b.querySelectorAll('img').length;
+      const vids=b.querySelectorAll('video,.video,.videoWrap,[class*=video]').length;
+      const files=[...b.querySelectorAll('[class*=file],[class*=File]')].filter(e=>/文件|图片|视频|下载/.test(e.innerText||'')).length;
+      buyerImgs += imgs + vids + files;
+    }catch(e){}
+  }
+  return JSON.stringify({ready:true,total:wraps.length,buyer_count:buyer.length,buyer_imgs:buyerImgs,buyer_msgs:msgs.map(m=>m.txt).slice(0,50)});
 }
 
 async function pageFinalize(cfg){
@@ -367,7 +377,93 @@ async function pageCheck(cfg){
 
 const APPEAL_PACK_DIR = () => path.join(baseDir(),'appeal-pack');
 const _safe = s => String(s||'').replace(/[\\/:*?"<>|\s]/g,'_');
-const REVIEW_DESC='买家仅勾选中评星级，评价无文字、无图片，飞鸽全程无沟通，没有提出任何商品或服务问题，属于无意义无效评价，申请剔除该评价，不参与店铺体验分统计。';
+
+
+// ===== LLM 判断评价原因（DeepSeek）=====
+const LLM_CFG_FILE = () => path.join(baseDir(),'llm.json');
+let _llmCfg = null;
+function llmCfg(){ if(_llmCfg) return _llmCfg; try{ _llmCfg=JSON.parse(fs.readFileSync(LLM_CFG_FILE(),'utf8')); }catch(e){ _llmCfg=null } return _llmCfg }
+const LLM_SYS = () => `你是抖音小店申诉助手。根据买家评价的内容和星级，从平台允许的举报原因里选最合适的一个。
+
+可选原因：
+1. report_reason_fake_negative_comment — 评价等级为差评内容为好评
+2. report_reason_evaluate_product_other_shop — 评价内容非交易商品或内容无意义
+3. report_reason_wrong_size — 消费者买错型号
+4. report_reason_low_politics_guns — 评价内容中包含辱骂或不当词汇
+5. report_reason_negative_comment_compensation — 利用中差评骗赔
+6. report_reason_business_evil_compete — 同行恶意竞争
+
+判断规则：
+- 内容是好评/满意/夸赞，但星级是 1~3 星 → 1
+- 内容是纯乱码、无意义符号/数字、与商品完全无关 → 2
+- 【重要】评价内容为空 → 平台一律不受理（会提示"首次评价内容为空，无法定位评价原因"）→ 返回 null
+- 明确说尺码买错/穿不下/码大码小（不是质量问题）→ 3
+- 含侮辱辱骂词汇 → 4
+- 威胁索赔/要钱 → 5
+- 明显同行恶意 → 6
+- 内容在反馈真实商品或服务问题（质量差、色差、起球、皱、不值、物流或驿站差等）→ 返回 null
+- 拿不准 → 返回 null
+
+只输出 JSON，不要解释：{"reason":"<上面6个代码之一，或null>","confidence":0到1,"why":"一句话"}`;
+
+async function llmClassifyReview(rank, content){
+  const cfg=llmCfg(); if(!cfg||!cfg.key) return {reason:null,confidence:0,why:'未配置大模型'};
+  for(let attempt=0; attempt<2; attempt++){
+    try{
+      const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(), 25000);
+      const r=await fetch(cfg.base_url+'/chat/completions',{ method:'POST', signal:ctrl.signal,
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfg.key},
+        body: JSON.stringify({ model:cfg.model, temperature:0, max_tokens:300,
+          messages:[{role:'system',content:LLM_SYS()},{role:'user',content:'星级：'+(rank||'中评')+'\n评价内容：'+(String(content||'').trim()||'（空）')}] }) });
+      clearTimeout(timer);
+      const j=await r.json();
+      let txt=((j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||'').trim();
+      const m=txt.match(/\{[\s\S]*\}/); if(m) txt=m[0];
+      const o=JSON.parse(txt);
+      const valid=['report_reason_fake_negative_comment','report_reason_evaluate_product_other_shop','report_reason_wrong_size','report_reason_low_politics_guns','report_reason_negative_comment_compensation','report_reason_business_evil_compete'];
+      if(o.reason && valid.indexOf(o.reason)<0) o.reason=null;
+      return {reason:o.reason||null, confidence:Number(o.confidence)||0, why:String(o.why||'').slice(0,80)};
+    }catch(e){ if(attempt===1) return {reason:null,confidence:0,why:'大模型调用失败:'+String(e.message||e).slice(0,40)}; }
+  }
+  return {reason:null,confidence:0,why:'大模型无结果'};
+}
+
+// ===== 评价原因：按内容自动判断（拿不准返回 null → 交人工）=====
+const REVIEW_REASON_MAP = [
+  { re: /尺码|码数|偏大|偏小|买大|买小|号大|号小|穿不上|不合身|买错/, sub: 'report_reason_wrong_size', label: '消费者买错型号' },
+  { re: /好评|满意|喜欢|不错|很好|很棒|点赞|五星|回购|物美价廉|值得|推荐/, sub: 'report_reason_fake_negative_comment', label: '评价等级为差评内容为好评' },
+  { re: /广告|微信|加我|代购|引流|私聊|留下|联系我/, sub: 'report_reason_evaluate_product_other_shop', label: '评价内容包含广告信息' },
+  { re: /同行|恶意竞争|抢生意|隔壁/, sub: 'report_reason_business_evil_compete', label: '同行恶意竞争' },
+  { re: /骗赔|敲诈|威胁|索赔|赔偿|要钱/, sub: 'report_reason_negative_comment_compensation', label: '利用中差评骗赔' },
+  { re: /骂|傻|垃圾|骗子|狗|滚|去死|恶心|有病/, sub: 'report_reason_low_politics_guns', label: '评价内容中包含辱骂或不当词汇' }
+];
+function pickReviewReason(content){
+  const t = String(content||'').trim();
+  if(!t) return null;                       // 内容为空：拿不准（平台对空内容多不受理）→ 人工
+  for(const m of REVIEW_REASON_MAP){ if(m.re.test(t)) return m; }
+  return null;                              // 匹配不上 → 拿不准 → 人工
+}
+// ===== 举报文案：按实际情况生成 =====
+const BAD_WORDS = /测试|抓包|请忽略|test|debug|demo|样例|试验/i;
+function sanitizeDesc(t){ return String(t||'').replace(BAD_WORDS,'').replace(/\s{2,}/g,' ').trim().slice(0,100); }
+function buildQualityDesc(o){
+  const r=String(o.reason||'').replace('（商品品质原因）','').replace('(商品品质原因)','');
+  const d=String(o.desc||'');
+  const m=(o.msgCount>0)?('经核查飞鸽聊天记录，买家自下单至今共 '+o.msgCount+' 条消息'):'经核查飞鸽聊天记录，买家自下单至今未与客服有过任何沟通（0 条消息）';
+  return ('售后原因选“'+r+'”，但售后说明写的是“'+d+'”，属个人主观/非品质原因，与所选品质退货原因不符；'+m+'，未反馈商品质量问题。恳请核实并剔除该订单的商品品质退货率考核。');
+}
+function buildReviewDesc(o){
+  const rank = o.rank || '中差评';
+  const content = String(o.content||'').trim();
+  const cpart = content ? ('评价内容为“'+content.slice(0,40)+'”') : '评价内容为空';
+  const mpart = (o.msgCount>0)
+    ? ('经核查飞鸽聊天记录，买家自下单至评价期间共 '+o.msgCount+' 条消息')
+    : '经核查飞鸽聊天记录，买家自下单至评价期间未与客服有过任何沟通（0 条消息）';
+  return ('买家给出'+rank+'，'+cpart+'，未上传商品问题图片或视频；'+mpart+'，未反馈任何商品或服务问题。'+
+          '该评价缺乏事实依据，属于异常评价，申请剔除该评价，不参与店铺体验分统计。');
+}
+
+const REVIEW_DESC_OLD='买家仅勾选中评星级，评价无文字、无图片，飞鸽全程无沟通，没有提出任何商品或服务问题，属于无意义无效评价，申请剔除该评价，不参与店铺体验分统计。';
 async function shot(wc, file){
   try{ const img=await wc.capturePage(); fs.mkdirSync(path.dirname(file),{recursive:true}); fs.writeFileSync(file,img.toPNG()); return file; }catch(e){ return null; }
 }
@@ -470,23 +566,33 @@ function createAppeal({store, jobs, app}){
         if(pageReady!==true){ await rA.loadURL(reportUrl).catch(()=>{}); await sleep(3000); pageReady=true; }
         const isRev = (c.kind==='review');
         const codes = isRev ? REVIEW_CODES : [SCENE_CODES.quality];
-        let code=null, status='', lastStatus='', tried=[], cid='', revProduct={};
+        let code=null, status='', lastStatus='', tried=[], cid='', revProduct={}, revContent='', revRank='', revLLM={};
         if(isRev){
-          // 评价类：用 comment_list 逐个原因判定 can_select
-          for(const cd of codes){
-            let ck={}; try{ ck=JSON.parse(await runPage(rA,pageReviewCheck,{order:c.order_id,scene:cd.scene,sub:cd.sub})||'{}'); }catch(e){ ck={}; }
-            tried.push({sub:cd.sub,label:cd.label,status:ck.status||'',hover:ck.hover||'',can:ck.can_select});
-            if(ck&&ck.found){ revProduct={product_name:ck.product_name||'',product_id:ck.product_id||''}; }
-            if(ck&&ck.can_select){ code=cd; cid=ck.comment_id||''; status='可举报'; break; }
-            lastStatus = ck.can_select===false ? '不可举报' : (lastStatus||'未查到');
+          // 规则②：按评价内容自动判断举报原因；拿不准 → 人工介入（举报机会只有一次）
+          let picked=null, llmInfo={};
+          try{ llmInfo=await llmClassifyReview(c.level||'中评', c.content); }catch(e){ llmInfo={}; }
+          if(llmInfo.reason){
+            const LABELS={'report_reason_fake_negative_comment':'评价等级为差评内容为好评','report_reason_evaluate_product_other_shop':'评价内容非交易商品或内容无意义','report_reason_wrong_size':'消费者买错型号','report_reason_low_politics_guns':'评价内容中包含辱骂或不当词汇','report_reason_negative_comment_compensation':'利用中差评骗赔','report_reason_business_evil_compete':'同行恶意竞争'};
+            picked={sub:llmInfo.reason,label:LABELS[llmInfo.reason]||''};
           }
-          if(!code){
-            const why = (lastStatus==='不可举报'?'不可举报':'未查到');
-            if(why==='不可举报') saveSkip(c.order_id,'不可举报',shopName);
-            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:why,detail:{tried:tried}});
+          if(!picked) picked = pickReviewReason(c.content);   // 大模型没结果时用关键词兜底
+          if(!picked){
+            saveSkip(c.order_id,'需人工介入·原因拿不准',shopName);
+            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·原因拿不准',
+                 detail:{content:String(c.content||'').slice(0,60), llm:llmInfo}});
             continue;
           }
-          status='可举报';
+          let ck={}; try{ ck=JSON.parse(await runPage(rA,pageReviewCheck,{order:c.order_id,scene:'report_type_unusual_comment',sub:picked.sub})||'{}'); }catch(e){ ck={}; }
+          tried.push({sub:picked.sub,label:picked.label,status:ck.status||'',hover:ck.hover||'',can:ck.can_select});
+          if(!ck.can_select){
+            saveSkip(c.order_id,'需人工介入·平台判定'+((ck.status)||'不可举报'),shopName);
+            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·平台判定'+((ck.status)||'不可举报'),detail:{tried:tried,hover:ck.hover||''}});
+            continue;
+          }
+          code={scene:'report_type_unusual_comment',sub:picked.sub,label:picked.label};
+          cid=ck.comment_id||''; status='可举报';
+          revProduct={product_name:ck.product_name||'',product_id:ck.product_id||''};
+          revContent=String(ck.content||c.content||'').slice(0,60); revRank=ck.rank||''; revLLM=llmInfo;
         }
         for(const cd of (code?[]:codes)){
           let pre={}; try{ pre=JSON.parse(await runPage(rA,pagePreCheckApply,{order:c.order_id,scene:cd.scene,sub:cd.sub})||'{}'); }catch(e){ pre={error:String(e&&e.message||e)}; }
@@ -509,7 +615,8 @@ function createAppeal({store, jobs, app}){
         for(let i=0;i<20;i++){ await sleep(1500); try{ f=JSON.parse(await runPage(rB,pageFlyge)||'{}'); }catch(e){ f=null; } if(f&&f.ready) break; }
         if(!f||!f.ready){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'飞鸽未加载'}); continue; }
         let net=null; try{ net=JSON.parse(await runPage(rB,pageReadNet)||'{}'); }catch(e){}
-        if(f.buyer_count>0){ saveSkip(c.order_id,'买家有沟通',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'买家有沟通 '+f.buyer_count+' 条',detail:{net:net}}); continue; }
+        if(f.buyer_imgs>0){ saveSkip(c.order_id,'需人工介入·买家发过图片',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·买家发过图片('+f.buyer_imgs+')',detail:{net:net}}); continue; }
+        if(f.buyer_count>0){ saveSkip(c.order_id,'需人工介入·买家有沟通',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·买家有沟通 '+f.buyer_count+' 条',detail:{net:net,buyer_msgs:f.buyer_msgs}}); continue; }
         // ③ 截图打包（全在窗口B，提前存盘；不碰窗口A）
         const dir=path.join(APPEAL_PACK_DIR(),_safe(shopName),_safe(c.order_id));
         const shots=[]; const isReview=c.kind==='review';
@@ -519,10 +626,10 @@ function createAppeal({store, jobs, app}){
 
         // ④ 接口提交（不再点页面）
         if(!submit){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'演练模式(未提交)',detail:{status:status,shots:shots.length}}); continue; }
-        let ap={}; try{ ap=JSON.parse(await runPage(rA, (c.kind==='review'?pageReviewApply:pageApplyNow), {order:c.order_id,scene:code.scene,sub:code.sub,cid:cid,desc:(c.kind==='review'?REVIEW_DESC:(c.report_desc||'')),proofs:[]})||'{}'); }catch(e){ ap={error:String(e&&e.message||e)}; }
+        let ap={}; try{ ap=JSON.parse(await runPage(rA, (c.kind==='review'?pageReviewApply:pageApplyNow), {order:c.order_id,scene:code.scene,sub:code.sub,cid:cid,desc:sanitizeDesc(c.kind==='review'?buildReviewDesc({rank:revRank,content:revContent,msgCount:0}):buildQualityDesc({reason:c.reason,desc:c.description,msgCount:0})),proofs:[]})||'{}'); }catch(e){ ap={error:String(e&&e.message||e)}; }
         let resp={}; try{ resp=JSON.parse(ap.resp||'{}'); }catch(e){ resp={}; }
         const ok = !!(resp && resp.code===0 && resp.data && resp.data.id);   // 必须拿到举报ID才算成功
-        let r={ submitted:!!ok, verified:!!ok, applyResp:resp, reqBody:ap.reqBody, shots:shots.length, status:status, reasonLabel:(code&&code.label)||'' };
+        let r={ submitted:!!ok, verified:!!ok, applyResp:resp, reqBody:ap.reqBody, shots:shots.length, status:status, reasonLabel:(code&&code.label)||'', llm:revLLM };
         if(!ok) r.reason = (resp&&(resp.msg||resp.message))||ap.error||'提交失败';
         if(!r.submitted && (r.skipped==='不可举报'||r.skipped==='无需举报')) saveSkip(c.order_id,r.skipped,shopName);
         if(!r.submitted && /^买家有沟通/.test(String(r.skipped||''))) saveSkip(c.order_id,'买家有沟通',shopName);
