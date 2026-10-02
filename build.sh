@@ -101,6 +101,18 @@ echo "⑤ 重签名（ad-hoc）"
 codesign --force --deep --sign - "$APP" >/dev/null 2>&1 && echo "   OK"
 
 echo "⑥ 重启 App"
+BRIDGE="$HOME/Library/Application Support/shopdesk/agent-bridge.json"
+if [ -f "$BRIDGE" ] && [ "$FORCE" != "1" ]; then
+  P=$(/usr/libexec/PlistBuddy -c "Print :port" "$BRIDGE" 2>/dev/null || true)
+  T=$(/usr/libexec/PlistBuddy -c "Print :token" "$BRIDGE" 2>/dev/null || true)
+  if [ -n "${P:-}" ] && [ -n "${T:-}" ]; then
+    R=$(/usr/bin/curl -s --max-time 15 --noproxy '*' -H "Authorization: Bearer $T" -H 'Content-Type: application/json' -d '{"method":"auto_appeal_status"}' "http://127.0.0.1:$P/call" 2>/dev/null)
+    case "$R" in
+      *'"running":true'*) echo "⛔ 申诉任务正在跑，已取消重启（FORCE=1 可强制）"; exit 1;;
+      "") echo "⛔ 接口无响应（可能在忙），已取消重启（FORCE=1 可强制）"; exit 1;;
+    esac
+  fi
+fi
 pkill -f "店铺工作台" 2>/dev/null || true
 sleep 3
 rm -f "$HOME/Library/Application Support/shopdesk/agent-bridge.json"

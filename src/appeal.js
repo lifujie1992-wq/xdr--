@@ -622,11 +622,14 @@ function createAppeal({store, jobs, app}){
         const SUBS=((ENUM&&ENUM['report_type_unusual_comment']&&ENUM['report_type_unusual_comment'].subs)||[]);
         const ALLOWED={};
         if(SUBS.length){
+          let done=0;
           for(let i=0;i<items.length;i+=3){
             const chunk=items.slice(i,i+3).map(x=>x.order_id);
             try{ const r=JSON.parse(await runPage(rA,pageBatchCanSelect,{orders:chunk,subs:SUBS,scene:'report_type_unusual_comment'})||'{}');
               for(const k of Object.keys(r)) ALLOWED[k]=r[k];
             }catch(e){}
+            done+=chunk.length;
+            if(done%15===0||done>=items.length) log({step:'批量预查中', 进度:done+'/'+items.length, 允许:Object.values(ALLOWED).filter(x=>x.ok&&x.ok.length).length});
           }
           log({step:'批量预查完成', 单数:Object.keys(ALLOWED).length, 平台允许:Object.values(ALLOWED).filter(x=>x.ok&&x.ok.length).length});
         }
