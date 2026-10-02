@@ -14,8 +14,8 @@ if [ -f "$BRIDGE" ]; then
   P=$(/usr/bin/plutil -extract port raw -o - "$BRIDGE" 2>/dev/null)
   T=$(/usr/bin/plutil -extract token raw -o - "$BRIDGE" 2>/dev/null)
   if [ -n "${P:-}" ] && [ -n "${T:-}" ]; then
-    R=$(/usr/bin/curl -s --max-time 5 --noproxy '*' -H "Authorization: Bearer $T" -H 'Content-Type: application/json'         -d '{"method":"auto_appeal_status"}' "http://127.0.0.1:$P/call" 2>/dev/null)
-    case "$R" in *'"running":true'*) say "申诉任务正在跑，跳过本轮部署"; exit 0;; esac
+    R=$(/usr/bin/curl -s --max-time 15 --noproxy '*' -H "Authorization: Bearer $T" -H 'Content-Type: application/json' -d '{"method":"auto_appeal_status"}' "http://127.0.0.1:$P/call" 2>/dev/null)
+    case "$R" in *'"running":true'*) say "申诉任务正在跑，跳过本轮部署"; exit 0;; "") say "接口无响应（App 可能在忙），安全起见跳过部署"; exit 0;; esac
   fi
 fi
 
