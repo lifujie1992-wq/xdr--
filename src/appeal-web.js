@@ -102,7 +102,7 @@ h2{font-size:14px;margin:22px 0 10px}
   <div id="review" class="hide"></div>
   <div id="list" class="hide">
     <div class="tools" style="margin:0 0 10px"><select id="fkind"><option value="">全部类型</option><option>品退</option><option>中差评</option></select>
-      <select id="fstatus"><option value="">全部状态</option><option>已举报</option><option>举报成功</option><option>不可举报</option><option>需转人工</option><option>未处理</option></select>
+      <select id="fstatus"><option value="">全部状态</option><option>已举报</option><option>举报成功</option><option>举报失败</option><option>不可举报</option><option>需转人工</option><option>未处理</option></select>
       <select id="ftag"><option value="">全部标签</option><option>不可举报</option><option>无需举报</option><option>已举报过</option><option>买家有沟通</option><option>需人工介入</option><option>需卖家提供质量证明</option><option>已驳回</option><option>审核中</option></select>
       <input id="fd1" type="date" title="开始日期"><span class="hint">~</span><input id="fd2" type="date" title="结束日期">
       <select id="frange"><option value="">全部时间</option><option value="7">近 7 天</option><option value="30">近 30 天</option><option value="90">近 90 天</option></select>
@@ -121,8 +121,8 @@ const pct=(a,b)=>(a+b)?Math.round(a/(a+b)*100):0;
 const RESULTS=(typeof DATA!=='undefined'&&DATA&&DATA._results)||{};
 function auditState(oid){const v=RESULTS&&RESULTS[oid];if(!v)return null;const a=v.auditStatus;if(a===6)return '已通过';if(a===3)return '已驳回';return '举报中';}
 function kindBd(k){return '<span class="kindbd '+(k==='品退'?'kd-q':'kd-r')+'">'+esc(k||'—')+'</span>'}
-function badge(s){const M={'已举报':'st-doing','举报成功':'st-ok','不可举报':'st-no','需转人工':'st-human','未处理':'st-todo'};const c=M[s]||'st-human';return '<span class="st '+c+'">'+esc(s||'—')+'</span>'}
-function auditCell(x){const tip=esc((x.auditMsg||'').replace(/\s+/g,' ').slice(0,200));if(!/^(已举报|举报成功)$/.test(x.status||''))return '<td></td>';if(x.auditStatus===3)return '<td class="rej" title="'+tip+'">❌ 平台拒绝：'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0])+'</td>';if(x.auditStatus===6)return '<td class="okc">✅ 审核通过</td>';if(x.auditStatus==null)return '<td class="wait">平台记录待同步</td>';return '<td class="wait">审核中</td>'}
+function badge(s){const M={'已举报':'st-doing','举报成功':'st-ok','举报失败':'st-no','不可举报':'st-no','需转人工':'st-human','未处理':'st-todo'};const c=M[s]||'st-human';return '<span class="st '+c+'">'+esc(s||'—')+'</span>'}
+function auditCell(x){const tip=esc((x.auditMsg||'').replace(/\s+/g,' ').slice(0,200));if(!/^(已举报|举报成功|举报失败)$/.test(x.status||''))return '<td></td>';if(x.auditStatus===3)return '<td class="rej" title="'+tip+'">❌ 平台拒绝：'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0])+'</td>';if(x.auditStatus===6)return '<td class="okc">✅ 审核通过</td>';if(x.auditStatus==null)return '<td class="wait">平台记录待同步</td>';return '<td class="wait">审核中</td>'}
 function drawTabs(){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===TAB));['ops','boss','review','list'].forEach(t=>$(t).classList.toggle('hide',t!==TAB))}
 function drawOps(){
   const o=STATS.ops;
@@ -310,7 +310,7 @@ function createAppealWeb({app, appeal}){
       const arr=[].concat(tags||[]);
       const joined=arr.join(' ');
       if(a===6) return {bucket:'举报成功', why:'平台审核通过：'+String(v.resultMsg||'').replace(/^.*平台动作[:：]/,'').split(';')[0]};
-      if(a===3) return {bucket:'已举报', why:'平台驳回：'+String(v.resultMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0]};
+      if(a===3) return {bucket:'举报失败', why:'平台拒绝理由：'+String(v.resultMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0]};
       if(a===1) return {bucket:'已举报', why:'已提交举报（平台审核中）'};
       if(s==='已举报') return {bucket:'已举报', why:'已提交举报（平台记录待同步）'};
       if(/不可举报/.test(joined)) return {bucket:'不可举报', why:/首次评价内容为空/.test(joined)?'平台提示：首次评价内容为空，无法定位评价原因':'平台判定该评价/售后不符合举报条件'};
