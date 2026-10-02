@@ -7,7 +7,7 @@ function readSnapshot(){
  return {url:location.href,title:document.title,text:text.slice(0,60000),truncated:text.length>60000};
 }
 function evidence(page,metric){const lines=page.text.split('\n');const matches=[];for(let i=0;i<lines.length;i++)if(lines[i].includes(metric)){matches.push(lines.slice(Math.max(0,i-2),i+8).join('\n'));if(matches.length===15)break}return matches}
-function createDispatcher({store,windows,openShop,metrics,experience,refunds,jobs,collectors,exploration,flygeProbe,flygeCheck,appealWorklist,appeal,appealWeb}){
+function createDispatcher({store,windows,openShop,metrics,experience,refunds,jobs,collectors,exploration,flygeProbe,flygeCheck,appealWorklist,appeal,appealWeb,backfill}){
  async function page(id){const shop=store.get(id);let w=windows.get(id);if(!w||w.isDestroyed())return {shop_id:id,shop_name:shop.name,status:'not_open'};
  if(w.sleeping)return {shop_id:id,shop_name:shop.name,status:'sleeping',message:'Use open_shop to resume this tab.'};
  const wc=w.webContents;if(wc.isLoadingMainFrame())return {shop_id:id,shop_name:shop.name,status:'loading'};
@@ -30,6 +30,8 @@ function createDispatcher({store,windows,openShop,metrics,experience,refunds,job
  if(method==='auto_appeal_start')return appeal.run(args||{});
  if(method==='auto_appeal_status')return appeal.snapshot();
  if(method==='appeal_sync_results')return appeal.syncResults(args||{});
+ if(method==='backfill_products')return backfill.run(args||{});
+ if(method==='backfill_status')return backfill.snapshot();
  if(method==='appeal_web_url')return {url:appealWeb?appealWeb.url():''};
  if(method==='exploration_command')return exploration.command(args);
  if(method==='close_exploration')return exploration.close();

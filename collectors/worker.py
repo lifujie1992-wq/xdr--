@@ -103,6 +103,17 @@ def main(request):
         except Exception:
             pass
         return {'captured_at':datetime.now(timezone.utc).isoformat(),'total_candidates':count,'worklist_file':worklist,'success':sum(r['status']=='ok' for r in results),'shop_count':len(results),'concurrency':3,'python_http_seconds':round(http,3),'results':results}
+    if request.get('action')=='backfill_products':
+        from backfill import backfill_products
+        from concurrent.futures import ThreadPoolExecutor
+        from datetime import datetime,timezone
+        import time
+        started=time.perf_counter()
+        with ThreadPoolExecutor(max_workers=3) as pool:results=collect(pool,lambda item:backfill_products(item,item.get('_targets') or {}),request['shops'])
+        http=time.perf_counter()-started
+        total=sum(r.get('matched_count') or 0 for r in results)
+        missing=sum(len(r.get('missing') or []) for r in results)
+        return {'captured_at':datetime.now(timezone.utc).isoformat(),'total_matched':total,'total_missing':missing,'success':sum(r['status']=='ok' for r in results),'shop_count':len(results),'concurrency':3,'python_http_seconds':round(http,3),'results':results}
     if request.get('action')=='record':
         # Only normalized metric data, never the fetch request or raw responses.
         folder=Path(request['dataDir']);folder.mkdir(parents=True,mode=0o700,exist_ok=True)

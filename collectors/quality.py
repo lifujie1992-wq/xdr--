@@ -96,6 +96,50 @@ def is_empty_or_emotion(text):
     t = str(text or '').strip().strip('。.！!~～,，、；;？?　 \t\n')
     return (not t) or (t in PURE_EMOTION)
 
+
+# ===== 商品名/商品编码提取（接口字段不固定，做通用扫描）=====
+_NAME_KEYS = ('product_name', 'goods_name', 'item_name', 'sku_name', 'goods_title', 'product_title', 'product_title_name', 'name')
+_ID_KEYS = ('product_id', 'goods_id', 'item_id', 'product_code', 'goods_code', 'outer_product_id', 'product_outer_id')
+
+_BAD_NAME = ('申请', '等待', '处理', '物流', '签收', '发货', '退款', '售后', '已', '待')
+
+def _ok_name(v):
+    t = str(v or '').strip()
+    if not t or len(t) < 5 or len(t) > 60:
+        return False
+    if t.isdigit():
+        return False
+    return not any(w in t for w in _BAD_NAME)
+
+def _pick_product(obj, depth=0):
+    """在任意返回结构里找商品名与商品编码。"""
+    name = ''; pid = ''
+    if depth > 4 or obj is None:
+        return name, pid
+    if isinstance(obj, dict):
+        for k in _NAME_KEYS:
+            v = obj.get(k)
+            if isinstance(v, str) and _ok_name(v):
+                name = v.strip(); break
+        for k in _ID_KEYS:
+            v = obj.get(k)
+            if v not in (None, '', 0, '0'):
+                pid = str(v); break
+        if not name or not pid:
+            for v in obj.values():
+                if isinstance(v, (dict, list)):
+                    n2, i2 = _pick_product(v, depth + 1)
+                    name = name or n2; pid = pid or i2
+                    if name and pid:
+                        break
+    elif isinstance(obj, list):
+        for v in obj[:6]:
+            n2, i2 = _pick_product(v, depth + 1)
+            name = name or n2; pid = pid or i2
+            if name and pid:
+                break
+    return name, pid
+
 def _session(item, referer):
     s = requests.Session(); s.trust_env = False
     for c in item['cookies']:
@@ -131,11 +175,14 @@ def _list_quality_orders(s, span, max_pages, page_size):
             if not is_quality_reason(reason):
                 continue
             order = it.get('order_info') or {}
+            pname, pid = _pick_product(it)
             orders.append({
                 'after_sale_id': str(info.get('after_sale_id') or ''),
                 'order_id': order.get('shop_order_id') or info.get('related_id') or '',
                 'reason': reason,
                 'apply_time': info.get('apply_time') or 0,
+                'product_name': pname,
+                'product_id': pid,
             })
         if len(items) < page_size:
             break
@@ -158,7 +205,8 @@ def _parse_detail(detail):
             reason = text
         elif label == '售后说明' and not desc:
             desc = _clean_desc(text)
-    return reason, desc, _has_evidence(d), _contact_url(d)
+    pname, pid = _pick_product(d)
+    return reason, desc, _has_evidence(d), _contact_url(d), pname, pid
 
 def _contact_url(d):
     for a in d.get('actions') or []:
@@ -247,14 +295,14 @@ def fetch_quality_returns(item, span=None, max_pages=20, page_size=50, max_detai
         def work(o):
             ds = _session({'cookies': [dict(c) for c in cookies], 'ua': ua}, AFTER_SALE_REFERER)
             try:
-                reason, desc, has_ev, contact = _parse_detail(_fetch_detail(ds, o['after_sale_id']))
-                return o, reason, desc, has_ev, contact
+                reason, desc, has_ev, contact, pname, pid = _parse_detail(_fetch_detail(ds, o['after_sale_id']))
+                return o, reason, desc, has_ev, contact, pname, pid
             except Exception:
-                return o, None, None, None, ''
+                return o, None, None, None, '', '', ''
             finally:
                 ds.cookies.clear(); ds.close()
         with ThreadPoolExecutor(max_workers=detail_workers) as pool:
-            for o, reason, desc, has_ev, contact in pool.map(work, picked):
+            for o, reason, desc, has_ev, contact, pname, pid in pool.map(work, picked):
                 if reason is None:
                     continue  # 详情获取失败，不贸然判定
                 if not is_quality_reason(reason):
@@ -276,6 +324,8 @@ def fetch_quality_returns(item, span=None, max_pages=20, page_size=50, max_detai
                     'flyge_url': contact,
                     'evidence': '①售后单详情截图  ②飞鸽完整聊天记录截图  ③订单详情截图',
                     'report_desc': report_desc,
+                    'product_name': pname or o.get('product_name') or '',
+                    'product_id': pid or o.get('product_id') or '',
                     'appeal_text': quality_appeal(o['order_id'], reason, desc, o['apply_time']),
                 })
         return {'shop_id': item['id'], 'name': item['name'], 'status': 'ok',
@@ -330,6 +380,7 @@ def fetch_negative_reviews(item, max_pages=20, page_size=50):
                     content = (c.get('content') or '').strip()
                     photos = c.get('photos') or []
                     videos = c.get('videos') or []
+                    pname, pid = _pick_product(c)
                     # 全量留存（供人工/AI 复盘，不影响候选筛选）
                     _all_rows.append({
                         'order_id': c.get('order_id') or c.get('shop_order_id') or '',
@@ -339,11 +390,15 @@ def fetch_negative_reviews(item, max_pages=20, page_size=50):
                         'content': content,
                         'has_media': bool(photos or videos),
                         'comment_date': _ymd(c.get('comment_time') or 0),
+                        'product_name': pname,
+                        'product_id': pid,
                     })
                     if not is_empty_or_emotion(content) or photos or videos:
                         continue
                     candidates.append({
                         'order_id': c.get('order_id') or c.get('shop_order_id') or '',
+                        'product_name': pname,
+                        'product_id': pid,
                         'comment_id': str(c.get('id') or ''),
                         'rank': c.get('rank'),
                         'level': ((c.get('tags') or {}).get('rank_info') or {}).get('name') or '',

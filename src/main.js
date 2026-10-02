@@ -2,7 +2,7 @@ const {app,BrowserWindow,ipcMain,session,dialog,Menu,clipboard,shell}=require('e
 const path=require('node:path');
 const {Tabs}=require('./tabs');
 const {startAgentAPI,createDispatcher}=require('./agent-api');
-let agentAPI,agentError=null,metricsService,collectors,jobs,exploration,loginHealth,loginScan,appeal,appealWeb;
+let agentAPI,agentError=null,metricsService,collectors,jobs,exploration,loginHealth,loginScan,appeal,appealWeb,backfill;
 const {createMetricsService}=require('./metrics-service');
 function agentStatus(){return agentAPI?.getStatus()||{ready:false,error:agentError,history:[],callCount:0,lastMcpAt:null}}
 function emitAgent(){if(manager&&!manager.isDestroyed())manager.webContents.send('agent-status',agentStatus())}
@@ -142,6 +142,7 @@ if(!app.requestSingleInstanceLock()){app.quit()}else{
  collectors=require('./collectors').createCollectors();
  jobs=require('./collector-jobs').createJobs({collectors,store,metrics:metricsService,loginHealth,onChange:data=>{if(manager&&!manager.isDestroyed())manager.webContents.send('collector-jobs',data)}});
  appeal=require('./appeal').createAppeal({store,jobs,app});
+ backfill=require('./backfill').createBackfill({app,store});
  appealWeb=require('./appeal-web').createAppealWeb({app,appeal});
  appealWeb.start().catch(()=>{});
  exploration=require('./exploration').createExploration({store});
@@ -157,7 +158,7 @@ if(!app.requestSingleInstanceLock()){app.quit()}else{
  handle('save',data=>{if(!data.id)throw Error('请通过扫码流程添加店铺');store.upsert(data);emit()});handle('begin-login',beginLogin);handle('pending-logins',()=>[...pending].map(([id,p])=>({id,name:p.name,message:p.message})));handle('focus-login',id=>{const p=pending.get(id);if(p){p.root.show();p.root.focus()}});handle('open',openShop);handle('relogin',reloginShop);
  handle('favorite',id=>{const s=store.get(id);s.favorite=!s.favorite;store.save();emit()});
  handle('remove',async id=>{const s=store.get(id);const {response}=await dialog.showMessageBox(manager,{type:'warning',message:'删除所选店铺？',detail:'将关闭该店铺窗口并清除本机登录数据，此操作不可撤销。',buttons:['取消','删除店铺'],defaultId:0,cancelId:0});if(response!==1)return;const w=windows.get(id);if(w)w.destroy();const ses=session.fromPartition('persist:shop-'+id);await ses.clearStorageData();await ses.clearCache();store.items=store.items.filter(x=>x.id!==id);store.save();emit()});
- createManager();startAgentAPI({stateFile:path.join(app.getPath('userData'),'agent-bridge.json'),dispatch:createDispatcher({store,windows,openShop,metrics:metricsService,experience:syncExperience,refunds:syncShippedRefunds,jobs,collectors,exploration,flygeProbe,flygeCheck,appealWorklist,appeal,appealWeb}),onStatus:emitAgent}).then(api=>{agentAPI=api;emitAgent()}).catch(e=>{agentError=e.message;emitAgent();dialog.showErrorBox('Codex 接口启动失败',e.message)});app.on('activate',()=>{if(!manager||manager.isDestroyed())createManager()});
+ createManager();startAgentAPI({stateFile:path.join(app.getPath('userData'),'agent-bridge.json'),dispatch:createDispatcher({store,windows,openShop,metrics:metricsService,experience:syncExperience,refunds:syncShippedRefunds,jobs,collectors,exploration,flygeProbe,flygeCheck,appealWorklist,appeal,appealWeb,backfill}),onStatus:emitAgent}).then(api=>{agentAPI=api;emitAgent()}).catch(e=>{agentError=e.message;emitAgent();dialog.showErrorBox('Codex 接口启动失败',e.message)});app.on('activate',()=>{if(!manager||manager.isDestroyed())createManager()});
  }).catch(e=>{dialog.showErrorBox('启动失败',e.message);app.quit()});
  app.on('will-quit',()=>{metricsService?.close();loginScan?.close();jobs?.close();exploration?.close();require('./python-worker').cancel(null);agentAPI?.close()});
  app.on('window-all-closed',()=>app.quit());
