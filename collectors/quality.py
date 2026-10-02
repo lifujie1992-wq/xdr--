@@ -362,6 +362,7 @@ def fetch_negative_reviews(item, max_pages=20, page_size=50):
                 if rows and min((c.get('comment_time') or 0) for c in rows) < cutoff:
                     break   # 列表按时间倒序，已到30天前就不再看
         return {'shop_id': item['id'], 'name': item['name'], 'status': 'ok',
+                'all_reviews': _all_rows,
                 'negative_count': negative_total, 'candidate_count': len(candidates),
                 'all_daily': all_daily,
                 'candidates': candidates,
