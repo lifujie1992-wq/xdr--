@@ -32,7 +32,9 @@ table.list td.tags .badge{margin:1px 2px 1px 0;font-size:10px;padding:2px 6px}
 .st{display:inline-block;white-space:nowrap;font-size:12px;font-weight:600;padding:4px 10px;border-radius:6px;min-width:64px;text-align:center}
 .st-doing{background:#fff8e1;color:#9a7b00;border:1px solid #f2dfa0}
 .st-ok{background:#e9f7f0;color:#1f7a55;border:1px solid #b6e2cf}
-.st-todo{background:#fdecea;color:#c0392b;border:1px solid #f5c6c0}
+.st-no{background:#fdecea;color:#c0392b;border:1px solid #f5c6c0}
+.st-human{background:#fdf0e6;color:#c2662b;border:1px solid #f0d0b0}
+.st-todo{background:#f1f5f9;color:#64748b;border:1px dashed #cbd5e1;font-weight:500}
 /* 二级标签 */
 .tg{display:inline-block;white-space:nowrap;font-size:10px;padding:2px 7px;border-radius:10px;margin:1px 3px 1px 0}
 .tg-human{background:#fdf0e6;color:#c2662b;font-weight:600}
@@ -95,7 +97,7 @@ h2{font-size:14px;margin:22px 0 10px}
   <div id="review" class="hide"></div>
   <div id="list" class="hide">
     <div class="tools" style="margin:0 0 10px"><select id="fkind"><option value="">全部类型</option><option>品退</option><option>中差评</option></select>
-      <select id="fstatus"><option value="">全部状态</option><option>已举报</option><option>未举报</option><option>举报成功</option></select>
+      <select id="fstatus"><option value="">全部状态</option><option>已举报</option><option>举报成功</option><option>不可举报</option><option>需转人工</option><option>未处理</option></select>
       <select id="ftag"><option value="">全部标签</option><option>不可举报</option><option>无需举报</option><option>已举报过</option><option>买家有沟通</option><option>需人工介入</option><option>需卖家提供质量证明</option><option>已驳回</option><option>审核中</option></select>
       <input id="fd1" type="date" title="开始日期"><span class="hint">~</span><input id="fd2" type="date" title="结束日期">
       <select id="frange"><option value="">全部时间</option><option value="7">近 7 天</option><option value="30">近 30 天</option><option value="90">近 90 天</option></select>
@@ -113,7 +115,7 @@ const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;',
 const pct=(a,b)=>(a+b)?Math.round(a/(a+b)*100):0;
 const RESULTS=(typeof DATA!=='undefined'&&DATA&&DATA._results)||{};
 function auditState(oid){const v=RESULTS&&RESULTS[oid];if(!v)return null;const a=v.auditStatus;if(a===6)return '已通过';if(a===3)return '已驳回';return '举报中';}
-function badge(s){const M={'已举报':'st-doing','未举报':'st-todo','举报成功':'st-ok'};const c=M[s]||'st-todo';return '<span class="st '+c+'">'+esc(s||'—')+'</span>'}
+function badge(s){const M={'已举报':'st-doing','举报成功':'st-ok','不可举报':'st-no','需转人工':'st-human','未处理':'st-todo'};const c=M[s]||'st-human';return '<span class="st '+c+'">'+esc(s||'—')+'</span>'}
 function auditCell(x){const tip=esc((x.auditMsg||'').replace(/\s+/g,' ').slice(0,200));if(!/^(已举报|举报中|已通过|已驳回)$/.test(x.status||''))return '<td></td>';if(x.auditStatus===3)return '<td class="rej" title="'+tip+'">❌ 驳回：'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0])+'</td>';if(x.auditStatus===6)return '<td class="okc">✅ 审核通过</td>';if(x.auditStatus==null)return '<td class="wait">待同步</td>';return '<td class="wait">审核中</td>'}
 function drawTabs(){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===TAB));['ops','boss','review','list'].forEach(t=>$(t).classList.toggle('hide',t!==TAB))}
 function drawOps(){
@@ -175,7 +177,7 @@ function drawList(){
   $('fcount').textContent='共 '+rows.length+' 条';
   if(!rows.length){ $('listwrap').innerHTML='<div class="empty">没有符合条件的记录。</div>'; $('pager').innerHTML=''; return }
   $('listwrap').innerHTML='<table class="list"><colgroup><col class="c1"><col class="c2"><col class="c3"><col class="c4"><col class="c5"><col class="c6"><col class="c7"><col class="c8"><col class="c9"><col class="c11"><col class="c10"></colgroup>'
-   +'<thead><tr><th>状态</th><th>类型</th><th>店铺</th><th>订单号</th><th>商品名称</th><th>商品编码</th><th>原因/内容</th><th>日期</th><th>提交人</th><th>标签</th><th>审核结果</th></tr></thead><tbody>'
+   +'<thead><tr><th>状态</th><th>类型</th><th>店铺</th><th>订单号</th><th>商品名称</th><th>商品编码</th><th>原因/内容</th><th>日期</th><th>提交人</th><th>详情</th><th>审核结果</th></tr></thead><tbody>'
    +view.map(x=>'<tr><td>'+badge(x.status)+'</td><td class="kind">'+esc(x.kind)+'</td><td>'+esc(x.shop)+'</td><td class="mono">'+esc(x.order_id)+'</td><td class="desc" title="'+esc(x.product_name||'')+'">'+esc(x.product_name||'—')+'</td><td class="mono">'+esc(x.product_id||'—')+'</td><td>'+esc(x.reason)+'</td><td>'+esc(x.date)+'</td><td>'+(x.submitter?'<span class="tag">'+esc(x.submitter)+'</span>':'')+'</td>'+auditCell(x)+'</tr>').join('')+'</tbody></table>';
   $('pager').innerHTML= size>0 && pages>1
     ? '<button data-pg="1">首页</button><button data-pg="'+(PAGE-1)+'">上一页</button><span class="hint">第 '+PAGE+' / '+pages+' 页 · 每页 '+size+' 条</span><button data-pg="'+(PAGE+1)+'">下一页</button><button data-pg="'+pages+'">末页</button>'
@@ -294,20 +296,30 @@ function createAppealWeb({app, appeal}){
       done.set(oid,cur);
     }
     const A=(oid)=>{ const v=results[oid]; if(!v) return null; const a=v.auditStatus; return a===6?'举报成功':'已举报'; };
+    // 主分类：只有 4 类
+    const BUCKET=(oid,s,tags)=>{
+      if(A(oid)==='举报成功') return '举报成功';
+      if(A(oid)==='已举报') return '已举报';
+      if(s==='已举报') return '已举报';
+      if(/^(不可举报|无需举报|已举报过)/.test((tags||[]).join(' '))) return '不可举报';
+      if(/^(需人工介入|需卖家提供质量证明|买家有沟通|飞鸽未加载|未查到|勾选失败|未提交)/.test((tags||[]).join(' '))) return '需转人工';
+      if(/^(未处理)/.test((tags||[]).join(' '))) return '未处理';
+      return '需转人工';
+    };
     const tagOf=(oid)=>{ const v=results[oid]; if(!v) return []; const a=v.auditStatus; if(a===6) return ['已通过']; if(a===3) return ['已驳回']; return ['审核中']; };
     const items=[]; const seen=new Set();
     const d0=new Date(Date.now()-30*86400000), minDate=d0.getFullYear()+'-'+String(d0.getMonth()+1).padStart(2,'0')+'-'+String(d0.getDate()).padStart(2,'0');
     for(const [kind,prefix,label] of [['quality','quality_returns','品退'],['review','negative_reviews','中差评']]){
       for(const r of loadWorklist(prefix)){ const dd=r.apply_date||r.comment_date||''; if(dd && dd<minDate) continue;
         seen.add(r.order_id); const s=done.get(r.order_id);
-        items.push({kind:label,shop:r.shop||'',order_id:r.order_id||'',reason:r.reason||r.content||'',date:r.apply_date||r.comment_date||'',desc:r.report_desc||'',status:(A(r.order_id)||((s&&s.submitted)?'已举报':'未举报')), tags:[...((s&&s.tags)||[]),...(A(r.order_id)?tagOf(r.order_id):[])].length?[...((s&&s.tags)||[]),...(A(r.order_id)?tagOf(r.order_id):[])]:['未处理'], submitted_at:(s&&s.at)||'',
+        items.push({kind:label,shop:r.shop||'',order_id:r.order_id||'',reason:r.reason||r.content||'',date:r.apply_date||r.comment_date||'',desc:r.report_desc||'',status:BUCKET(r.order_id,null,(s&&[...(s.tags||[]),...(A(r.order_id)?tagOf(r.order_id):[])])||['未处理']), tags:[...((s&&s.tags)||[]),...(A(r.order_id)?tagOf(r.order_id):[])].length?[...((s&&s.tags)||[]),...(A(r.order_id)?tagOf(r.order_id):[])]:['未处理'], submitted_at:(s&&s.at)||'',
           product_name:r.product_name||'', product_id:r.product_id?String(r.product_id):'', submitter:(s&&s.submitter)||'',
           auditStatus:(results[r.order_id]&&results[r.order_id].auditStatus!=null)?results[r.order_id].auditStatus:null, auditMsg:(results[r.order_id]&&results[r.order_id].resultMsg)||''}); }
     }
     for(const [oid,v] of Object.entries(results)){ if(seen.has(oid)) continue; seen.add(oid);
-      items.push({kind:(v.scene||'').indexOf('售后')>=0?'品退':'中差评',shop:v.shop||'',order_id:oid,reason:v.sub||'',date:(v.created||'').slice(0,10),desc:'',status:A(oid)||'已举报', tags:(tagOf(oid).length?tagOf(oid):['已上报平台']), submitted_at:v.created||'',auditStatus:(v.auditStatus!=null?v.auditStatus:null),auditMsg:v.resultMsg||''}); }
+      items.push({kind:(v.scene||'').indexOf('售后')>=0?'品退':'中差评',shop:v.shop||'',order_id:oid,reason:v.sub||'',date:(v.created||'').slice(0,10),desc:'',status:'举报成功'===A(oid)?'举报成功':'已举报', tags:tagOf(oid), submitted_at:v.created||'',auditStatus:(v.auditStatus!=null?v.auditStatus:null),auditMsg:v.resultMsg||''}); }
     for(const [oid,s] of done){ if(seen.has(oid)) continue; seen.add(oid);
-      items.push({kind:s.kind==='review'?'中差评':(s.kind==='quality'?'品退':'—'),shop:s.shop||'',order_id:oid,reason:(s.status==='不可举报'?'（平台判定不可举报）':'（已提交）'),date:'',desc:'',status:A(oid)||(s.submitted?'已举报':'未举报'), tags:([...((s.tags)||[]),...(A(oid)?tagOf(oid):[])].length?[...((s.tags)||[]),...(A(oid)?tagOf(oid):[])]:['未处理']), submitted_at:s.at||'',
+      items.push({kind:s.kind==='review'?'中差评':(s.kind==='quality'?'品退':'—'),shop:s.shop||'',order_id:oid,reason:(s.status==='不可举报'?'（平台判定不可举报）':'（已提交）'),date:'',desc:'',status:BUCKET(oid,s,[...((s.tags)||[]),(s.status||''),...(A(oid)?tagOf(oid):[])].length?[...((s.tags)||[]),(s.status||''),...(A(oid)?tagOf(oid):[])]:['未处理']), tags:[...((s.tags)||[]),...(A(oid)?tagOf(oid):[])].length?[...((s.tags)||[]),...(A(oid)?tagOf(oid):[])]:['未处理'], submitted_at:s.at||'',
         auditStatus:(results[oid]&&results[oid].auditStatus!=null)?results[oid].auditStatus:null, auditMsg:(results[oid]&&results[oid].resultMsg)||''}); }
     return {generated_at:new Date().toISOString(), _results:results, count:items.length,
       appealable:0, appealed:items.filter(i=>/^(已举报|举报中|已通过|已驳回)$/.test(i.status)).length,

@@ -664,6 +664,8 @@ function createAppeal({store, jobs, app}){
         if(!ok) r.reason = (resp&&(resp.msg||resp.message))||ap.error||'提交失败';
         if(!r.submitted && (r.skipped==='不可举报'||r.skipped==='无需举报')) saveSkip(c.order_id,r.skipped,shopName);
         if(!r.submitted && /^买家有沟通/.test(String(r.skipped||''))) saveSkip(c.order_id,'买家有沟通',shopName);
+        // 平台明确说"不能举报" → 记入永久名单，不再重试
+        if(!r.submitted && /不能举报/.test(String((resp&&(resp.msg||resp.message))||''))){ saveSkip(c.order_id,'不可举报',shopName); }
         // 提交未生效：再回平台查一次该单是否已有举报记录（多半是"已报过"被静默拒绝）
         if(!r.submitted && String(r.reason||'').indexOf('提交未生效')>=0){
           try{ const has=await orderHasReport(rB,c.order_id); if(has){ r.alreadyReported=has; saveSkip(c.order_id,'已举报过',shopName); } }catch(e){}
