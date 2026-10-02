@@ -336,13 +336,13 @@ function createAppealWeb({app, appeal}){
     for(const [kind,prefix,label] of [['quality','quality_returns','品退'],['review','negative_reviews','中差评']]){
       for(const r of loadWorklist(prefix)){ const dd=r.apply_date||r.comment_date||''; if(dd && dd<minDate) continue;
         seen.add(r.order_id); const s=done.get(r.order_id);
-        const BK=BUCKET(r.order_id,(s&&s.status)||'',(s?(s.tags||[]):[]));
+        const BK=BUCKET(r.order_id,s,(s?(s.tags||[]):[]));
         items.push({kind:label,shop:r.shop||'',order_id:r.order_id||'',reason:r.reason||r.content||'',date:r.apply_date||r.comment_date||'',desc:r.report_desc||'',status:BK.bucket, why:BK.why, tags:[...arrOf(s&&s.tags),...(A(r.order_id)?tagOf(r.order_id):[])].length?[...arrOf(s&&s.tags),...(A(r.order_id)?tagOf(r.order_id):[])]:['未处理'], submitted_at:(s&&s.at)||'',
           product_name:r.product_name||'', product_id:r.product_id?String(r.product_id):'', submitter:(s&&s.submitter)||'',
           auditStatus:(results[r.order_id]&&results[r.order_id].auditStatus!=null)?results[r.order_id].auditStatus:null, auditMsg:(results[r.order_id]&&results[r.order_id].resultMsg)||''}); }
     }
     for(const [oid,v] of Object.entries(results)){ if(seen.has(oid)) continue; seen.add(oid);
-      const BK=BUCKET(oid,'',tagOf(oid));
+      const BK=BUCKET(oid,null,tagOf(oid));
       items.push({kind:(v.scene||'').indexOf('售后')>=0?'品退':'中差评',shop:v.shop||'',order_id:oid,reason:v.sub||'',date:(v.created||'').slice(0,10),desc:'',status:BK.bucket, why:BK.why, tags:tagOf(oid), submitted_at:v.created||'',auditStatus:(v.auditStatus!=null?v.auditStatus:null),auditMsg:v.resultMsg||''}); }
     for(const [oid,s] of done){ if(seen.has(oid)) continue; seen.add(oid);
       items.push({kind:s.kind==='review'?'中差评':(s.kind==='quality'?'品退':'—'),shop:s.shop||'',order_id:oid,reason:(s.status==='不可举报'?'（平台判定不可举报）':'（已提交）'),date:'',desc:'',status:BUCKET(oid,s,[...arrOf(s.tags),(s.status||''),...(A(oid)?tagOf(oid):[])].length?[...arrOf(s.tags),(s.status||''),...(A(oid)?tagOf(oid):[])]:['未处理']).bucket, tags:[...arrOf(s.tags),...(A(oid)?tagOf(oid):[])].length?[...arrOf(s.tags),...(A(oid)?tagOf(oid):[])]:['未处理'], submitted_at:s.at||'',
