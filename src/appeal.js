@@ -424,12 +424,13 @@ async function llmClassifyReview(rank, content, chat, hasImg){
       const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(), 25000);
       const r=await fetch(cfg.base_url+'/chat/completions',{ method:'POST', signal:ctrl.signal,
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfg.key},
-        body: JSON.stringify({ model:cfg.model, temperature:0, max_tokens:300,
+        body: JSON.stringify({ model:cfg.model, max_tokens:2500,
           messages:[{role:'system',content:LLM_SYS()},{role:'user',content:'星级：'+(rank||'中评')+'\n评价内容：'+(String(content||'').trim()||'（空）')+'\n飞鸽聊天记录：'+(chat&&chat.length?chat.join(' | ').slice(0,800):'（买家全程没有任何发言）')+'\n买家是否发过图片/视频：'+(hasImg?'是':'否')}] }) });
       clearTimeout(timer);
       const j=await r.json();
       let txt=((j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||'').trim();
       const m=txt.match(/\{[\s\S]*\}/); if(m) txt=m[0];
+      if(!txt) throw new Error('空响应');
       const o=JSON.parse(txt);
       const valid=['report_reason_fake_negative_comment','report_reason_evaluate_product_other_shop','report_reason_wrong_size','report_reason_low_politics_guns','report_reason_negative_comment_compensation','report_reason_business_evil_compete'];
       if(o.reason && valid.indexOf(o.reason)<0) o.reason=null;
@@ -640,7 +641,7 @@ function createAppeal({store, jobs, app}){
         try{ await rB.loadURL('https://fxg.jinritemai.com/ffa/order/detail?order_id='+c.order_id).catch(()=>{}); await sleep(5500); const p=await shot(rB,path.join(dir,'③订单详情.png')); if(p)shots.push(p); }catch(e){}
 
         // ④ 接口提交（不再点页面）
-        if(!submit){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'演练模式(未提交)',detail:{status:status,shots:shots.length}}); continue; }
+        if(!submit){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'演练模式(未提交)',detail:{content:String(revContent||c.content||'').slice(0,60),label:(code&&code.label)||'',llm:revLLM,shots:shots.length,status:status}}); continue; }
         let ap={}; try{ ap=JSON.parse(await runPage(rA, (c.kind==='review'?pageReviewApply:pageApplyNow), {order:c.order_id,scene:code.scene,sub:code.sub,cid:cid,desc:sanitizeDesc(c.kind==='review'?buildReviewDesc({rank:revRank,content:revContent,msgCount:(f&&f.buyer_count)||0,imgCount:(f&&f.buyer_imgs)||0}):buildQualityDesc({reason:c.reason,desc:c.description,msgCount:(f&&f.buyer_count)||0})),proofs:[]})||'{}'); }catch(e){ ap={error:String(e&&e.message||e)}; }
         let resp={}; try{ resp=JSON.parse(ap.resp||'{}'); }catch(e){ resp={}; }
         const ok = !!(resp && resp.code===0 && resp.data && resp.data.id);   // 必须拿到举报ID才算成功
