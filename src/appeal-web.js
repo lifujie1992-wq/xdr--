@@ -20,9 +20,14 @@ main{padding:16px 22px}
 table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden}
 table.list{table-layout:fixed}
 table.list th,table.list td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
-table.list col.c1{width:82px}table.list col.c2{width:54px}table.list col.c3{width:110px}
-table.list col.c4{width:166px}table.list col.c5{width:186px}table.list col.c6{width:122px}
-table.list col.c7{width:150px}table.list col.c8{width:94px}table.list col.c9{width:72px}table.list col.c10{width:250px}table.list col.c11{width:190px}
+table.list col.c1{width:210px}table.list col.c4{width:220px}table.list col.c2{width:112px}
+table.list col.c5{width:auto}table.list col.c9{width:78px}table.list col.c10{width:300px}
+table.list td.shopcell b{font-size:13px}
+table.list td .sub{color:#94a3b8;font-size:11px}
+.kindbd{display:inline-block;font-size:10px;padding:2px 7px;border-radius:5px;white-space:nowrap}
+.kd-q{background:#e8f0ff;color:#2456c8}
+.kd-r{background:#fff0e8;color:#c2662b}
+table.list td.why{font-size:12px;line-height:1.5;white-space:normal;color:#475569}
 table.list td.tags .badge{margin:1px 2px 1px 0;font-size:10px;padding:2px 6px}
 .tag{white-space:nowrap;display:inline-block}
 .pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:12px;flex-wrap:wrap}
@@ -115,8 +120,9 @@ const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;',
 const pct=(a,b)=>(a+b)?Math.round(a/(a+b)*100):0;
 const RESULTS=(typeof DATA!=='undefined'&&DATA&&DATA._results)||{};
 function auditState(oid){const v=RESULTS&&RESULTS[oid];if(!v)return null;const a=v.auditStatus;if(a===6)return '已通过';if(a===3)return '已驳回';return '举报中';}
+function kindBd(k){return '<span class="kindbd '+(k==='品退'?'kd-q':'kd-r')+'">'+esc(k||'—')+'</span>'}
 function badge(s){const M={'已举报':'st-doing','举报成功':'st-ok','不可举报':'st-no','需转人工':'st-human','未处理':'st-todo'};const c=M[s]||'st-human';return '<span class="st '+c+'">'+esc(s||'—')+'</span>'}
-function auditCell(x){const tip=esc((x.auditMsg||'').replace(/\s+/g,' ').slice(0,200));if(!/^(已举报|举报中|已通过|已驳回)$/.test(x.status||''))return '<td></td>';if(x.auditStatus===3)return '<td class="rej" title="'+tip+'">❌ 驳回：'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0])+'</td>';if(x.auditStatus===6)return '<td class="okc">✅ 审核通过</td>';if(x.auditStatus==null)return '<td class="wait">待同步</td>';return '<td class="wait">审核中</td>'}
+function auditCell(x){const tip=esc((x.auditMsg||'').replace(/\s+/g,' ').slice(0,200));if(!/^(已举报|举报成功)$/.test(x.status||''))return '<td></td>';if(x.auditStatus===3)return '<td class="rej" title="'+tip+'">❌ 平台拒绝：'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0])+'</td>';if(x.auditStatus===6)return '<td class="okc">✅ 审核通过</td>';if(x.auditStatus==null)return '<td class="wait">平台记录待同步</td>';return '<td class="wait">审核中</td>'}
 function drawTabs(){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===TAB));['ops','boss','review','list'].forEach(t=>$(t).classList.toggle('hide',t!==TAB))}
 function drawOps(){
   const o=STATS.ops;
@@ -176,9 +182,9 @@ function drawList(){
   const view=size>0?rows.slice((PAGE-1)*size,PAGE*size):rows;
   $('fcount').textContent='共 '+rows.length+' 条';
   if(!rows.length){ $('listwrap').innerHTML='<div class="empty">没有符合条件的记录。</div>'; $('pager').innerHTML=''; return }
-  $('listwrap').innerHTML='<table class="list"><colgroup><col class="c1"><col class="c2"><col class="c3"><col class="c4"><col class="c5"><col class="c6"><col class="c7"><col class="c8"><col class="c9"><col class="c11"><col class="c10"></colgroup>'
-   +'<thead><tr><th>状态</th><th>类型</th><th>店铺</th><th>订单号</th><th>商品名称</th><th>商品编码</th><th>原因/内容</th><th>日期</th><th>提交人</th><th>详情</th><th>审核结果</th></tr></thead><tbody>'
-   +view.map(x=>'<tr><td>'+badge(x.status)+'</td><td class="kind">'+esc(x.kind)+'</td><td>'+esc(x.shop)+'</td><td class="mono">'+esc(x.order_id)+'</td><td class="desc" title="'+esc(x.product_name||'')+'">'+esc(x.product_name||'—')+'</td><td class="mono">'+esc(x.product_id||'—')+'</td><td>'+esc(x.reason)+'</td><td>'+esc(x.date)+'</td><td>'+(x.submitter?'<span class="tag">'+esc(x.submitter)+'</span>':'')+'</td>'+auditCell(x)+'</tr>').join('')+'</tbody></table>';
+  $('listwrap').innerHTML='<table class="list"><colgroup><col class="c1"><col class="c4"><col class="c2"><col class="c5"><col class="c9"><col class="c10"></colgroup>'
+   +'<thead><tr><th>店铺 / 类型 / 日期</th><th>订单号 / 商品</th><th>状态</th><th>状态原因</th><th>提交人</th><th>审核结果</th></tr></thead><tbody>'
+   +view.map(x=>'<tr>'+'<td class="shopcell"><b>'+esc(x.shop)+'</b><br>'+kindBd(x.kind)+' <span class="sub">'+esc(x.date)+'</span></td>'+'<td class="ordcell"><span class="mono">'+esc(x.order_id)+'</span><br><span class="sub">'+esc(x.product_name||'')+'</span>'+(x.product_id?'<span class="sub"> · 编码 '+esc(x.product_id)+'</span>':'')+'</td>'+'<td>'+badge(x.status)+'</td>'+'<td class="why" title="'+esc(x.why||'')+'">'+esc(x.why||'—')+'</td>'+'<td>'+(x.submitter?'<span class="tag">'+esc(x.submitter)+'</span>':'')+'</td>'+auditCell(x)+'</tr>').join('')+'</tbody></table>';
   $('pager').innerHTML= size>0 && pages>1
     ? '<button data-pg="1">首页</button><button data-pg="'+(PAGE-1)+'">上一页</button><span class="hint">第 '+PAGE+' / '+pages+' 页 · 每页 '+size+' 条</span><button data-pg="'+(PAGE+1)+'">下一页</button><button data-pg="'+pages+'">末页</button>'
     : '<span class="hint">共 '+rows.length+' 条</span>';
