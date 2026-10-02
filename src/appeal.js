@@ -566,6 +566,13 @@ function createAppeal({store, jobs, app}){
           if(real) m.add(e.order); } } }catch(e){} }
     return m;
   }
+  function unionAllReviews(){
+    const map=new Map();
+    try{ const files=fs.readdirSync(dataDir()).filter(f=>f.startsWith('reviews-all-')&&f.endsWith('.json')).sort();
+      for(const f of files){ for(const r of (readJson(path.join(dataDir(),f))||[])){ if(r.order_id){ const old=map.get(r.order_id); map.set(r.order_id, old?Object.assign({},old,r):r); } } }
+    }catch(e){}
+    return [...map.values()];
+  }
   function unionWorklist(prefix){
     const map=new Map();
     try{ const files=fs.readdirSync(dataDir()).filter(f=>f.startsWith('appeal-worklist-'+prefix+'-')&&f.endsWith('.json')).sort();
@@ -587,7 +594,8 @@ function createAppeal({store, jobs, app}){
     const out=[];
     for(const [kind,prefix,argName] of [['quality','quality_returns','quality'],['review','negative_reviews','reviews']]){
       if(!kinds.includes(argName)) continue;
-      for(const r of unionWorklist(prefix)){ const dd=r.apply_date||r.comment_date||''; if(dd && dd<minDate) continue; if(done.has(r.order_id)) continue; out.push({...r, kind}); }
+      const src = (prefix==='negative_reviews') ? unionAllReviews() : unionWorklist(prefix);
+      for(const r of src){ const dd=r.apply_date||r.comment_date||''; if(dd && dd<minDate) continue; if(done.has(r.order_id)) continue; out.push({...r, kind}); }
     }
     return out;
   }
