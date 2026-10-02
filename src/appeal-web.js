@@ -28,9 +28,17 @@ table.list td.tags .badge{margin:1px 2px 1px 0;font-size:10px;padding:2px 6px}
 .pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:12px;flex-wrap:wrap}
 .pager button{padding:6px 12px;font-size:12px;background:#fff;border:1px solid #e2e8f0}
 .pager button:hover{background:#eff6ff;border-color:#93c5fd}
-.badge{display:inline-block;white-space:nowrap;font-size:11px;padding:3px 8px;border-radius:6px}
-.b-human{background:#fdf0e6;color:#c2662b;font-weight:600}
-.b-done{background:#eaf6f1;color:#2f8a6d}.b-no{background:#fdeceb;color:#c0392b}.b-warn{background:#fdf9f0;color:#b3762a}.b-ok{background:#eaf6f1;color:#2f8a6d}.b-wait{background:#eef2f7;color:#64748b}
+/* 主状态：已举报=黄 举报成功=绿 未举报=红 */
+.st{display:inline-block;white-space:nowrap;font-size:12px;font-weight:600;padding:4px 10px;border-radius:6px;min-width:64px;text-align:center}
+.st-doing{background:#fff8e1;color:#9a7b00;border:1px solid #f2dfa0}
+.st-ok{background:#e9f7f0;color:#1f7a55;border:1px solid #b6e2cf}
+.st-todo{background:#fdecea;color:#c0392b;border:1px solid #f5c6c0}
+/* 二级标签 */
+.tg{display:inline-block;white-space:nowrap;font-size:10px;padding:2px 7px;border-radius:10px;margin:1px 3px 1px 0}
+.tg-human{background:#fdf0e6;color:#c2662b;font-weight:600}
+.tg-no{background:#fdeceb;color:#c0392b}
+.tg-warn{background:#fdf9f0;color:#b3762a}
+.tg-info{background:#eef2f7;color:#64748b}
 th,td{padding:9px 10px;border-bottom:1px solid #eef2f7;text-align:left;font-size:12px;vertical-align:top}
 th{background:#f1f5f9;color:#64748b;font-weight:500;position:sticky;top:0}
 tr:hover td{background:#f8fafc}
@@ -104,7 +112,7 @@ const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;',
 const pct=(a,b)=>(a+b)?Math.round(a/(a+b)*100):0;
 const RESULTS=(typeof DATA!=='undefined'&&DATA&&DATA._results)||{};
 function auditState(oid){const v=RESULTS&&RESULTS[oid];if(!v)return null;const a=v.auditStatus;if(a===6)return '已通过';if(a===3)return '已驳回';return '举报中';}
-function badge(s){const M={'已举报':'b-done','未举报':'b-wait','举报成功':'b-ok'};const c=M[s]||'b-wait';return '<span class="badge '+c+'">'+esc(s||'—')+'</span>'}
+function badge(s){const M={'已举报':'st-doing','未举报':'st-todo','举报成功':'st-ok'};const c=M[s]||'st-todo';return '<span class="st '+c+'">'+esc(s||'—')+'</span>'}
 function auditCell(x){const tip=esc((x.auditMsg||'').replace(/\s+/g,' ').slice(0,200));if(!/^(已举报|举报中|已通过|已驳回)$/.test(x.status||''))return '<td></td>';if(x.auditStatus===3)return '<td class="rej" title="'+tip+'">❌ 驳回：'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0])+'</td>';if(x.auditStatus===6)return '<td class="okc">✅ 审核通过</td>';if(x.auditStatus==null)return '<td class="wait">待同步</td>';return '<td class="wait">审核中</td>'}
 function drawTabs(){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===TAB));['ops','boss','review','list'].forEach(t=>$(t).classList.toggle('hide',t!==TAB))}
 function drawOps(){

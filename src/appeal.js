@@ -282,7 +282,7 @@ async function pageSubmit(cfg){
   const ready=async()=>{ for(let i=0;i<12;i++){ if([...document.querySelectorAll('div,span,button,li')].some(e=>(e.innerText||'').trim()===SCENE)) return true; await sleep(700);} return false; };
   const latestId=async()=>{ try{ const r=await fetch('/shopuser/accuse/list',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({page:0,pageSize:3})}); const j=await r.json(); const l=(j.data&&j.data.accuse_list)||[]; return l[0]?String(l[0].id):null; }catch(e){ return null } };
   const log=[];
-  for(let attempt=0; attempt<2; attempt++){
+  for(let attempt=0; attempt<3; attempt++){
     await ready();
     click(SCENE);await sleep(800);
     let chosen=null,picked=false,lastSkip='不可举报',sawRow=false;
@@ -423,7 +423,7 @@ ${(opts||[]).map((o,i)=>`${i+1}. ${o.code} — ${o.name}${o.desc?('（'+String(o
 
 async function llmClassifyReview(rank, content, chat, hasImg, opts){
   const cfg=llmCfg(); if(!cfg||!cfg.key) return {verdict:'uncertain',reason:null,confidence:0,why:'未配置大模型'};
-  for(let attempt=0; attempt<2; attempt++){
+  for(let attempt=0; attempt<3; attempt++){
     try{
       const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(), 25000);
       const r=await fetch(cfg.base_url+'/chat/completions',{ method:'POST', signal:ctrl.signal,
@@ -441,7 +441,7 @@ async function llmClassifyReview(rank, content, chat, hasImg, opts){
       const V=['report','real_problem','quality_claim','uncertain'];
       let v=V.indexOf(o.verdict)>=0?o.verdict:(o.reason?'report':'uncertain');
       return {verdict:v, reason:o.reason||null, confidence:Number(o.confidence)||0, why:String(o.why||'').slice(0,80)};
-    }catch(e){ if(attempt===1) return {verdict:'uncertain',reason:null,confidence:0,why:'大模型调用失败:'+String(e.message||e).slice(0,40)}; }
+    }catch(e){ if(attempt===2) return {verdict:'uncertain',reason:null,confidence:0,why:'大模型调用失败:'+String(e.message||e).slice(0,40)}; }
   }
   return {verdict:'uncertain',reason:null,confidence:0,why:'大模型无结果'};
 }
