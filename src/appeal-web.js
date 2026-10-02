@@ -27,6 +27,23 @@ table.list td .sub{color:#94a3b8;font-size:11px}
 .kindbd{display:inline-block;font-size:10px;padding:2px 7px;border-radius:5px;white-space:nowrap}
 .kd-q{background:#e8f0ff;color:#2456c8}
 .kd-r{background:#fff0e8;color:#c2662b}
+.fbar{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.chip{background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:16px;padding:5px 12px;font-size:12px;cursor:pointer}
+.chip i{font-style:normal;opacity:.6;margin-left:4px}
+.chip.on{background:#2563eb;color:#fff;border-color:#2563eb;font-weight:600}
+.chip.on i{opacity:.9}
+.chip:hover{border-color:#93c5fd}
+.frow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.frow select,.frow input{padding:8px 10px;font-size:12px}
+.frow input#fq{flex:1;min-width:180px}
+.seg{display:flex;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}
+.seg button{background:#fff;border:0;padding:8px 14px;font-size:12px;color:#64748b;border-right:1px solid #e2e8f0}
+.seg button:last-child{border-right:0}
+.seg button.on{background:#eff6ff;color:#1d4ed8;font-weight:600}
+.fmeta{display:flex;gap:10px;align-items:center;margin-top:10px;font-size:12px;color:#64748b}
+.fmeta .lnk{color:#2563eb;cursor:pointer;text-decoration:none}
+.fmeta .grow{flex:1}
 table.list td.why{font-size:12px;line-height:1.5;white-space:normal;color:#475569}
 table.list td.tags .badge{margin:1px 2px 1px 0;font-size:10px;padding:2px 6px}
 .tag{white-space:nowrap;display:inline-block}
@@ -259,7 +276,24 @@ function trendTable(map){const ks=Object.keys(map).sort();if(!ks.length)return '
 function draw(){drawTabs();if(!STATS)return;$('gen').textContent='更新于 '+(STATS.generated_at?new Date(STATS.generated_at).toLocaleString('zh-CN'):'');if(TAB==='ops')drawOps();else if(TAB==='boss')drawBoss();else if(TAB==='review')drawReview();else drawList()}
 function load(){Promise.all([fetch('/data').then(r=>r.json()),fetch('/stats').then(r=>r.json())]).then(([d,s])=>{DATA=d;STATS=s;draw()}).catch(()=>{})}
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{TAB=b.dataset.tab;draw()});
-$('refresh').onclick=load;['fkind','fstatus','ftag','fd1','fd2','frange','fpage'].forEach(id=>{const el=$(id); if(el){ el.onchange=()=>{PAGE=1;draw()}; el.oninput=()=>{PAGE=1;draw()}; }});$('fq').oninput=()=>{PAGE=1;draw()};
+function applyRange(){
+  const rg=$('frange').value; $('fcustom').classList.toggle('hide', rg!=='custom');
+  if(rg && rg!=='custom'){ const d=new Date(); d.setDate(d.getDate()-Number(rg));
+    const pad=n=>String(n).padStart(2,'0');
+    F.from=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); F.to=''; }
+  else if(rg==='custom'){ F.from=$('fd1').value; F.to=$('fd2').value; }
+  else { F.from=''; F.to=''; }
+  PAGE=1; drawList();
+}
+function bindFilters(){
+  $('fshop').onchange=()=>{ F.shop=$('fshop').value; PAGE=1; drawList(); };
+  $('frange').onchange=()=>{ applyRange(); };
+  $('fd1').onchange=$('fd2').onchange=()=>{ F.from=$('fd1').value; F.to=$('fd2').value; PAGE=1; drawList(); };
+  $('fq').oninput=()=>{ F.q=$('fq').value.trim().toLowerCase(); PAGE=1; drawList(); };
+  $('fpage').onchange=()=>{ PAGE=1; drawList(); };
+  $('clearf').onclick=()=>{ F={status:'',kind:'',shop:'',q:'',from:'',to:''}; $('fq').value=''; $('frange').value=''; $('fcustom').classList.add('hide'); PAGE=1; drawList(); };
+}
+load(); bindFilters(); setInterval(load,30000);
 load();setInterval(load,30000);
 </script></body></html>`;
 
