@@ -173,6 +173,28 @@ async function pageFetchEnum(){
     return JSON.stringify(out);
   }catch(e){ return '{}' }
 }
+
+// ===== 批量预查：平台允许哪些举报原因（就是"举报按钮能不能点"）=====
+async function pageBatchCanSelect(cfg){
+  const out={};
+  for(const o of (cfg.orders||[])){
+    const ok=[]; let status=''; let hover=''; let cid='';
+    for(const sb of (cfg.subs||[])){
+      try{
+        const r=await fetch('/shopuser/accuse/comment_list',{method:'POST',credentials:'include',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({size:2,page:1,scene_type:cfg.scene,sub_scene_type:sb.code,accuse_id:null,sku_order_id:String(o)})});
+        const j=await r.json();
+        const cm=((j.data||{}).comments||[])[0]||{};
+        if(cm.can_select) ok.push(sb.code);
+        if(!status){ status=String(((cm.status||{}).text||'')).replace(/<%[^%]*%>/g,''); hover=String((((cm.status_ext||{}).placeholder||[])[0]||{}).hover||''); cid=String(cm.comment_id||''); }
+      }catch(e){}
+    }
+    out[String(o)]={ok:ok, status:status, hover:hover, comment_id:cid};
+  }
+  return JSON.stringify(out);
+}
+
 async function pageReviewCheck(cfg){
   try{
     const r = await fetch('/shopuser/accuse/comment_list', {method:'POST', credentials:'include',
@@ -588,6 +610,19 @@ function createAppeal({store, jobs, app}){
       for(const c of items){
        try{
         const flygeUrl = c.flyge_url || ('https://im.jinritemai.com/pc_seller_v2/main/workspace?fromOrder=' + c.order_id);
+        // ⓪ 批量预查：平台允许哪些举报原因（漏斗第②层，0.3秒/单）
+        const SUBS=((ENUM&&ENUM['report_type_unusual_comment']&&ENUM['report_type_unusual_comment'].subs)||[]);
+        const ALLOWED={};
+        if(SUBS.length){
+          for(let i=0;i<items.length;i+=3){
+            const chunk=items.slice(i,i+3).map(x=>x.order_id);
+            try{ const r=JSON.parse(await runPage(rA,pageBatchCanSelect,{orders:chunk,subs:SUBS,scene:'report_type_unusual_comment'})||'{}');
+              for(const k of Object.keys(r)) ALLOWED[k]=r[k];
+            }catch(e){}
+          }
+          log({step:'批量预查完成', 单数:Object.keys(ALLOWED).length, 平台允许:Object.values(ALLOWED).filter(x=>x.ok&&x.ok.length).length});
+        }
+
         // ① 飞鸽核查（先拿聊天记录，供"像运营一样判断"用）
         if(pageReady!==true){ await rA.loadURL(reportUrl).catch(()=>{}); await sleep(2500); pageReady=true; }
         if(!netHooked){ try{ await rB.loadURL('about:blank'); }catch(e){} await installNetHook(rB); netHooked=true; }
@@ -614,6 +649,10 @@ function createAppeal({store, jobs, app}){
             saveSkip(c.order_id,'需人工介入·买家反馈真实问题',shopName);
             log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·买家反馈真实问题',detail:{llm:revLLM,content:String(c.content||'').slice(0,60)}});
             continue;
+          }
+          if(revLLM.verdict==='report'&&revLLM.reason&&allowed.indexOf(revLLM.reason)<0){
+            revLLM.why=(revLLM.why||'')+'（平台不允许该原因，改用允许清单）';
+            revLLM.reason=allowed[0];
           }
           if(revLLM.verdict!=='report'||!revLLM.reason){
             // 只有"大模型调用失败"才用关键词兜底；大模型主动说"拿不准"必须交人工
