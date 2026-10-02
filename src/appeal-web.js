@@ -424,6 +424,7 @@ function createAppealWeb({app, appeal}){
         let status='未举报';
         if(av){ status=auditOf(r.order_id); tags.push(...auditTags(r.order_id)); if(!why) why=String(av.resultMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0]; }
         if(e && e.result==='已提交' && !av) status='已举报';
+        if(status==='需转人工') tags.unshift('需转人工');
         items.push({kind:label,shop:r.shop||'',order_id:r.order_id||'',reason:r.reason||r.content||'',date:dd||'',
           desc:r.report_desc||'',status:status,why:why,tags:tags,submitted_at:(e&&e.at)||'',
           product_name:r.product_name||'',product_id:r.product_id?String(r.product_id):'',
