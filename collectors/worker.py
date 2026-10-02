@@ -98,7 +98,7 @@ def main(request):
             for r in results:
                 for x in (r.get('all_reviews') or []):
                     allrows.append(dict(x, shop=r.get('name') or '', shop_id=r.get('shop_id') or ''))
-            f=pathlib.Path(request['dataDir'])/('reviews-all-%s.json'%stamp)
+            f=Path(request['dataDir'])/('reviews-all-%s.json'%stamp)
             f.write_text(json.dumps(allrows,ensure_ascii=False,indent=1),encoding='utf-8')
         except Exception:
             pass
