@@ -453,7 +453,7 @@ async function llmClassifyReview(rank, content, chat, hasImg, opts){
       const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(), 25000);
       const r=await fetch(cfg.base_url+'/chat/completions',{ method:'POST', signal:ctrl.signal,
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfg.key},
-        body: JSON.stringify({ model:cfg.model, max_tokens:2500,
+        body: JSON.stringify({ model:cfg.model, max_tokens:8000,
           messages:[{role:'system',content:LLM_SYS(opts)},{role:'user',content:'星级：'+(rank||'中评')+'\n评价内容：'+(String(content||'').trim()||'（空）')+'\n飞鸽聊天记录：'+(chat&&chat.length?chat.join(' | ').slice(0,800):'（买家全程没有任何发言）')+'\n买家是否发过图片/视频：'+(hasImg?'是':'否')}] }) });
       clearTimeout(timer);
       const j=await r.json();
