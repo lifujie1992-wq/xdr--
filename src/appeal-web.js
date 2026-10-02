@@ -189,6 +189,41 @@ function drawReview(){
    }).join('');
 }
 let PAGE=1;
+const STATUSES=['已举报','举报成功','举报失败','不可举报','需转人工','未处理'];
+function CounterOf(rows){ const c={}; for(const x of rows){ c[x.status]=(c[x.status]||0)+1; } return c; }
+function filtered(){
+  return DATA.items.filter(x=>{
+    if(!x.status) return false;
+    if(F.status && x.status!==F.status) return false;
+    if(F.kind && x.kind!==F.kind) return false;
+    if(F.shop && (x.shop||'')!==F.shop) return false;
+    if(F.q){ const hay=((x.shop||'')+' '+(x.order_id||'')+' '+(x.product_name||'')+' '+(x.product_id||'')+' '+(x.why||'')).toLowerCase(); if(hay.indexOf(F.q)<0) return false; }
+    const d=String(x.date||'').slice(0,10);
+    if(F.from && d && d<F.from) return false;
+    if(F.to && d && d>F.to) return false;
+    return true;
+  });
+}
+function drawChips(all){
+  const c=CounterOf(all); const el=$('chips');
+  el.innerHTML=['全部'].concat(STATUSES).map(k=>{
+    const n=(k==='全部')?all.length:(c[k]||0);
+    if(k!=='全部'&&!n) return '';
+    return '<button class="chip'+(F.status===k||(k==='全部'&&!F.status)?' on':'')+'" data-st="'+k+'">'+k+'<i>'+n+'</i></button>';
+  }).join('');
+  el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ F.status=(b.dataset.st==='全部')?'':b.dataset.st; PAGE=1; drawChips(all); drawList(); });
+}
+function drawShopSel(all){
+  const m={}; for(const x of all){ if(x.shop) m[x.shop]=(m[x.shop]||0)+1; }
+  const sel=$('fshop');
+  sel.innerHTML='<option value="">全部店铺 ('+Object.keys(m).length+')</option>'
+    +Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([k,v])=>'<option'+(F.shop===k?' selected':'')+' value="'+esc(k)+'">'+esc(k)+' ('+v+')</option>').join('');
+}
+function drawSeg(){
+  $('fkindSeg').innerHTML=['','品退','中差评'].map(k=>'<button class="sg'+((F.kind===k||(k===''&&!F.kind))?' on':'')+'" data-k="'+k+'">'+(k||'全部')+'</button>').join('');
+  $('fkindSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ F.kind=b.dataset.k; PAGE=1; drawSeg(); drawList(); });
+}
+
 function drawList(){
   const kind=$('fkind').value, st=$('fstatus').value, q=$('fq').value.trim().toLowerCase();
   const d1=$('fd1').value, d2=$('fd2').value, rg=$('frange').value;
