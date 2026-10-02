@@ -188,7 +188,7 @@ function drawReview(){
         +'<div class="col"><h3>平台审核结果</h3>'+box+'</div></div></div>';
    }).join('');
 }
-let PAGE=1;
+let PAGE=1, F={status:'',kind:'',shop:'',q:'',from:'',to:''};
 const STATUSES=['已举报','举报成功','举报失败','不可举报','需转人工','未处理'];
 function CounterOf(rows){ const c={}; for(const x of rows){ c[x.status]=(c[x.status]||0)+1; } return c; }
 function filtered(){
