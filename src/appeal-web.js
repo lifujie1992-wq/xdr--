@@ -292,17 +292,19 @@ function createAppealWeb({app, appeal}){
     for(const oid of Object.keys(last)){
       const e=last[oid];
       const hasRec=!!results[oid];
-      const cur={tags:new Set(), at:e.at, shop:e.shop, kind:e.kind, submitted:(everSubmitted.has(oid)||hasRec)};
+      const cur={tags:new Set(), at:e.at, shop:e.shop, kind:e.kind, submitted:(everSubmitted.has(oid)||hasRec), llmwhy:''};
       if(cur.submitted) cur.submitter='AI提交';
       if(!hasRec && !cur.submitted) {
         const rs=String(e.reason||'');
+        const lw=((e.detail||{}).llm||{}).why || '';
+        if(lw) cur.llmwhy=String(lw);
         if(/^需人工介入/.test(rs)){ cur.tags.add('需人工介入'); if(/买家发过图片/.test(rs)) cur.tags.add('买家发过图片'); if(/买家有沟通/.test(rs)) cur.tags.add('买家有沟通'); if(/买家反馈真实问题/.test(rs)) cur.tags.add('买家反馈真实问题'); }
         const base=rs.split(' ')[0].split('(')[0].split('·')[0];
         if(TAGS.indexOf(base)>=0) cur.tags.add(base);
       }
       done.set(oid,cur);
     }
-    const arrOf=t=>Array.isArray(t)?t:(t?[String(t)]:[]);
+    const arrOf=t=>{ if(t instanceof Set) return [...t]; if(Array.isArray(t)) return t; return t?[String(t)]:[]; };
     const A=(oid)=>{ const v=results[oid]; if(!v) return null; const a=v.auditStatus; return a===6?'举报成功':'已举报'; };
     // 主分类：只有 4 类
     const BUCKET=(oid,s,tags)=>{
@@ -316,11 +318,13 @@ function createAppealWeb({app, appeal}){
       if(/不可举报/.test(joined)) return {bucket:'不可举报', why:/首次评价内容为空/.test(joined)?'平台提示：首次评价内容为空，无法定位评价原因':'平台判定该评价/售后不符合举报条件'};
       if(/无需举报/.test(joined)) return {bucket:'不可举报', why:'平台判定无需举报'};
       if(/已举报过/.test(joined)) return {bucket:'不可举报', why:'该订单已有举报记录（平台一单一报）'};
-      if(/需卖家提供质量证明/.test(joined)) return {bucket:'需转人工', why:'飞鸽聊天中有图片证据证明商品质量问题，需准备质量证明材料'};
-      if(/买家反馈真实问题/.test(joined)) return {bucket:'需转人工', why:'买家指出本店商品/服务的具体缺陷，不宜举报'};
+      const aiWhy=(typeof s==='object'&&s&&s.llmwhy)?String(s.llmwhy):'';
+      if(/需卖家提供质量证明/.test(joined)) return {bucket:'需转人工', why:aiWhy||'飞鸽聊天中有图片证据证明商品质量问题，需准备质量证明材料'};
+      if(/需人工介入/.test(joined)) return {bucket:'需转人工', why:aiWhy||'AI 判断不确定，需人工核实'};
+      if(/买家反馈真实问题/.test(joined)) return {bucket:'需转人工', why:aiWhy||'买家指出本店商品/服务的具体缺陷，不宜举报'};
       if(/买家发过图片/.test(joined)) return {bucket:'需转人工', why:'买家发来过图片/视频证据'};
       if(/买家有沟通/.test(joined)) return {bucket:'需转人工', why:'买家与客服有过沟通，需人工查看聊天内容'};
-      if(/判断不确定/.test(joined)) return {bucket:'需转人工', why:'内容为空或信息不足，AI 无法判断，需人工'};
+      if(/判断不确定/.test(joined)) return {bucket:'需转人工', why:aiWhy||'内容为空或信息不足，AI 无法判断，需人工'};
       if(/飞鸽未加载|未查到|勾选失败/.test(joined)) return {bucket:'需转人工', why:'平台页面/查询异常，需重试'};
       if(/未提交\(演练\)/.test(joined)) return {bucket:'需转人工', why:'演练模式跑过但未提交：平台允许举报（can_select=true），需人工确认后提交'};
       if(/未处理/.test(joined)) return {bucket:'需转人工', why:'尚未处理'};
