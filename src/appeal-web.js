@@ -191,10 +191,10 @@ function drawReview(){
 let PAGE=1, F={status:'',kind:'',shop:'',q:'',from:'',to:''};
 const STATUSES=['已举报','举报成功','举报失败','不可举报','需转人工','未举报'];
 function CounterOf(rows){ const c={}; for(const x of rows){ c[x.status]=(c[x.status]||0)+1; } return c; }
-function filtered(){
+function filtered(skipStatus){
   return DATA.items.filter(x=>{
     if(!x.status) return false;
-    if(F.status && x.status!==F.status) return false;
+    if(!skipStatus && F.status && x.status!==F.status) return false;
     if(F.kind && x.kind!==F.kind) return false;
     if(F.shop && (x.shop||'')!==F.shop) return false;
     if(F.q){ const hay=((x.shop||'')+' '+(x.order_id||'')+' '+(x.product_name||'')+' '+(x.product_id||'')+' '+(x.why||'')).toLowerCase(); if(hay.indexOf(F.q)<0) return false; }
@@ -211,7 +211,7 @@ function drawChips(all){
     if(k!=='全部'&&!n) return '';
     return '<button class="chip'+(F.status===k||(k==='全部'&&!F.status)?' on':'')+'" data-st="'+k+'">'+k+'<i>'+n+'</i></button>';
   }).join('');
-  el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ F.status=(b.dataset.st==='全部')?'':b.dataset.st; PAGE=1; drawChips(all); drawList(); });
+  el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ F.status=(b.dataset.st==='全部')?'':b.dataset.st; PAGE=1; drawList(); });
 }
 function drawShopSel(all){
   const m={}; for(const x of all){ if(x.shop) m[x.shop]=(m[x.shop]||0)+1; }
@@ -226,7 +226,9 @@ function drawSeg(){
 
 function drawList(){
   const all=DATA.items;
-  if(!$('chips').innerHTML){ drawChips(all); drawShopSel(all); drawSeg(); }
+  if(!$('fshop').options.length) drawShopSel(all);
+  drawSeg();
+  drawChips(filtered(true));
   const rows=filtered();
   const size=Number(($('fpage')&&$('fpage').value)||50);
   const pages=size>0?Math.max(1,Math.ceil(rows.length/size)):1;
