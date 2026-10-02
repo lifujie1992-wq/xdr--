@@ -638,44 +638,47 @@ function createAppeal({store, jobs, app}){
         let code=null, cid='', status='', tried=[], revLLM={}, revContent='', revRank='';
         const LABELS={'report_reason_fake_negative_comment':'评价等级为差评内容为好评','report_reason_evaluate_product_other_shop':'评价内容非交易商品或内容无意义','report_reason_wrong_size':'消费者买错型号','report_reason_low_politics_guns':'评价内容中包含辱骂或不当词汇','report_reason_negative_comment_compensation':'利用中差评骗赔','report_reason_business_evil_compete':'同行恶意竞争'};
         if(isRev){
-          const revOpts=((ENUM&&ENUM['report_type_unusual_comment']&&ENUM['report_type_unusual_comment'].subs)||[]).concat(((ENUM&&ENUM['report_type_feige_unsatisfied_conversation']&&ENUM['report_type_feige_unsatisfied_conversation'].subs)||[]));
-          try{ revLLM=await llmClassifyReview(c.level||'中评', c.content, f.buyer_msgs||[], (f.buyer_imgs>0), revOpts); }catch(e){ revLLM={verdict:'uncertain'}; }
-          if(revLLM.verdict==='quality_claim'){
+          const SUBS0=((ENUM&&ENUM['report_type_unusual_comment']&&ENUM['report_type_unusual_comment'].subs)||[]);
+          const allowed=(ALLOWED[c.order_id]&&ALLOWED[c.order_id].ok)||[];
+          if(!allowed.length){
+            const _a=ALLOWED[c.order_id]||{};
+            saveSkip(c.order_id,'不可举报',shopName);
+            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'不可举报',detail:{content:String(c.content||'').slice(0,60),platform:{status:_a.status,hover:_a.hover}}});
+            continue;
+          }
+          const allowedOpts=SUBS0.filter(x=>allowed.indexOf(x.code)>=0);
+          let llmInfo={};
+          try{ llmInfo=await llmClassifyReview(c.level||'中评', c.content, f.buyer_msgs||[], (f.buyer_imgs>0), allowedOpts); }catch(e){ llmInfo={verdict:'uncertain'}; }
+          revLLM=llmInfo;
+          if(llmInfo.verdict==='quality_claim'){
             saveSkip(c.order_id,'需卖家提供质量证明',shopName);
-            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需卖家提供质量证明',detail:{llm:revLLM,imgs:f.buyer_imgs,msgs:f.buyer_count}});
+            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需卖家提供质量证明',detail:{llm:llmInfo,imgs:f.buyer_imgs,msgs:f.buyer_count}});
             continue;
           }
-          if(revLLM.verdict==='real_problem'){
+          if(llmInfo.verdict==='real_problem'){
             saveSkip(c.order_id,'需人工介入·买家反馈真实问题',shopName);
-            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·买家反馈真实问题',detail:{llm:revLLM,content:String(c.content||'').slice(0,60)}});
+            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·买家反馈真实问题',detail:{llm:llmInfo,content:String(c.content||'').slice(0,60)}});
             continue;
           }
-          if(revLLM.verdict==='report'&&revLLM.reason&&allowed.indexOf(revLLM.reason)<0){
-            revLLM.why=(revLLM.why||'')+'（平台不允许该原因，改用允许清单）';
-            revLLM.reason=allowed[0];
+          if(llmInfo.verdict==='report'&&llmInfo.reason&&allowed.indexOf(llmInfo.reason)<0){
+            llmInfo.why=(llmInfo.why||'')+'（该原因平台不允许，改用允许清单中的）';
+            llmInfo.reason=allowed[0];
           }
-          if(revLLM.verdict!=='report'||!revLLM.reason){
-            // 只有"大模型调用失败"才用关键词兜底；大模型主动说"拿不准"必须交人工
-            const llmFailed = /大模型调用失败|大模型无结果|未配置|空响应/.test(String(revLLM.why||''));
-            const fb = llmFailed ? pickReviewReason(c.content) : null;
+          if(llmInfo.verdict!=='report'||!llmInfo.reason){
+            const llmFailed=/大模型调用失败|大模型无结果|未配置|空响应/.test(String(llmInfo.why||''));
+            const fb=llmFailed?pickReviewReason(c.content):null;
             if(!fb){
               saveSkip(c.order_id,'需人工介入·判断不确定',shopName);
-              log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·判断不确定',detail:{llm:revLLM,content:String(c.content||'').slice(0,60)}});
+              log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·判断不确定',detail:{llm:llmInfo,content:String(c.content||'').slice(0,60)}});
               continue;
             }
-            revLLM.reason=fb.sub; revLLM.verdict='report'; revLLM.why=(revLLM.why||'')+'（关键词兜底）';
+            llmInfo.verdict='report'; llmInfo.reason=fb.sub; llmInfo.why=(llmInfo.why||'')+'（关键词兜底）';
           }
-          const hit=CODE2SCENE[revLLM.reason]||{scene:'report_type_unusual_comment',name:LABELS[revLLM.reason]||''};
-          const cd={scene:hit.scene,sub:revLLM.reason,label:hit.name||LABELS[revLLM.reason]||''};
-          let ck={}; try{ ck=JSON.parse(await runPage(rA,pageReviewCheck,{order:c.order_id,scene:cd.scene,sub:cd.sub})||'{}'); }catch(e){ ck={}; }
-          tried.push({sub:cd.sub,label:cd.label,status:ck.status||'',hover:ck.hover||'',can:ck.can_select});
-          if(!ck.can_select){
-            saveSkip(c.order_id,'需人工介入·平台判定'+((ck.status)||'不可举报'),shopName);
-            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·平台判定'+((ck.status)||'不可举报'),detail:{llm:revLLM,tried:tried,hover:ck.hover||''}});
-            continue;
-          }
-          code=cd; cid=ck.comment_id||''; status='可举报';
-          revContent=String(ck.content||c.content||'').slice(0,60); revRank=ck.rank||'';
+          const nm=(SUBS0.find(x=>x.code===llmInfo.reason)||{}).name||'';
+          code={scene:'report_type_unusual_comment',sub:llmInfo.reason,label:nm};
+          cid=(ALLOWED[c.order_id]&&ALLOWED[c.order_id].comment_id)||'';
+          status='可举报';
+          revContent=String(c.content||'').slice(0,60); revRank=c.level||'中评';
         } else {
           const cd=SCENE_CODES.quality;
           let pre={}; try{ pre=JSON.parse(await runPage(rA,pagePreCheckApply,{order:c.order_id,scene:cd.scene,sub:cd.sub})||'{}'); }catch(e){ pre={error:String(e&&e.message||e)}; }
