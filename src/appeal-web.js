@@ -420,8 +420,6 @@ function createAppealWeb({app, appeal}){
           else if(/未查到/.test(rs)){ why='平台查询未找到该单，需重试'; tags.push('待重试'); }
           else if(/演练模式/.test(rs)){ why='演练模式跑过但未提交：平台允许举报（can_select=true），需人工确认后提交'; tags.push('待提交(演练)'); }
         }
-        // 转人工 → 独立状态（AI 拿不准/有图证据/平台异常，需要人处理）
-        if(why && tags.some(t=>/^(需人工介入|需卖家提供质量证明)$/.test(t) || t==='待重试')) status='需转人工';
         // 平台有记录 → 覆盖为平台事实
         const av=results[r.order_id];
         let status='未举报';
