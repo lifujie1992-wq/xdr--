@@ -412,6 +412,7 @@ function createAppealWeb({app, appeal}){
             if(/需卖家提供质量证明/.test(rs)) tags.push('需卖家提供质量证明');
           }
           else if(/不可举报/.test(rs)){ why='平台判定不符合举报条件'; tags.push('不可举报'); }
+          if(/转人工|需人工|不宜举报|质量证明|拿不准|无法判断|不宜直接举报/.test(why)) tags.push('需转人工');
           else if(/无需举报/.test(rs)){ why='平台判定无需举报'; tags.push('无需举报'); }
           else if(/已举报过/.test(rs)){ why='该订单已有举报记录（平台一单一报）'; tags.push('已举报过'); }
           else if(/买家有沟通/.test(rs)){ why='买家与客服有过沟通，需人工查看聊天内容'; tags.push('买家有沟通'); }
