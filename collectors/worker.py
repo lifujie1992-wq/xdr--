@@ -91,6 +91,17 @@ def main(request):
         with ThreadPoolExecutor(max_workers=3) as pool:results=collect(pool,fetch_negative_reviews,request['shops'])
         http=time.perf_counter()-started
         worklist,count=finalize_worklist(results,request['dataDir'],'negative_reviews')
+        # 额外落一份「全量中差评」（含被筛掉的：有实质内容/有图/情绪化）
+        try:
+            stamp=datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')
+            allrows=[]
+            for r in results:
+                for x in (r.get('all_reviews') or []):
+                    allrows.append(dict(x, shop=r.get('name') or '', shop_id=r.get('shop_id') or ''))
+            f=pathlib.Path(request['dataDir'])/('reviews-all-%s.json'%stamp)
+            f.write_text(json.dumps(allrows,ensure_ascii=False,indent=1),encoding='utf-8')
+        except Exception:
+            pass
         return {'captured_at':datetime.now(timezone.utc).isoformat(),'total_candidates':count,'worklist_file':worklist,'success':sum(r['status']=='ok' for r in results),'shop_count':len(results),'concurrency':3,'python_http_seconds':round(http,3),'results':results}
     if request.get('action')=='record':
         # Only normalized metric data, never the fetch request or raw responses.

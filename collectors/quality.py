@@ -295,6 +295,7 @@ def fetch_quality_returns(item, span=None, max_pages=20, page_size=50, max_detai
 def fetch_negative_reviews(item, max_pages=20, page_size=50):
     """扫描中差评（1~3 星）：近30天内、评价无实质描述、且无图片 / 无视频。"""
     started = time.perf_counter(); s = _session(item, COMMENT_REFERER)
+    _all_rows = []
     candidates = []; negative_total = 0; all_daily = {}
     cutoff = int(time.time()) - 30 * 86400
     try:
@@ -329,6 +330,16 @@ def fetch_negative_reviews(item, max_pages=20, page_size=50):
                     content = (c.get('content') or '').strip()
                     photos = c.get('photos') or []
                     videos = c.get('videos') or []
+                    # 全量留存（供人工/AI 复盘，不影响候选筛选）
+                    _all_rows.append({
+                        'order_id': c.get('order_id') or c.get('shop_order_id') or '',
+                        'comment_id': str(c.get('comment_id') or ''),
+                        'rank': c.get('rank'),
+                        'level': ((c.get('tags') or {}).get('rank_info') or {}).get('name') or '',
+                        'content': content,
+                        'has_media': bool(photos or videos),
+                        'comment_date': _ymd(c.get('comment_time') or 0),
+                    })
                     if not is_empty_or_emotion(content) or photos or videos:
                         continue
                     candidates.append({
