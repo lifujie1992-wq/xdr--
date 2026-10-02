@@ -616,7 +616,9 @@ function createAppeal({store, jobs, app}){
             continue;
           }
           if(revLLM.verdict!=='report'||!revLLM.reason){
-            const fb=pickReviewReason(c.content);                       // 大模型拿不准时用关键词兜底
+            // 只有"大模型调用失败"才用关键词兜底；大模型主动说"拿不准"必须交人工
+            const llmFailed = /大模型调用失败|大模型无结果|未配置|空响应/.test(String(revLLM.why||''));
+            const fb = llmFailed ? pickReviewReason(c.content) : null;
             if(!fb){
               saveSkip(c.order_id,'需人工介入·判断不确定',shopName);
               log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·判断不确定',detail:{llm:revLLM,content:String(c.content||'').slice(0,60)}});
