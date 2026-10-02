@@ -383,38 +383,45 @@ const _safe = s => String(s||'').replace(/[\\/:*?"<>|\s]/g,'_');
 const LLM_CFG_FILE = () => path.join(baseDir(),'llm.json');
 let _llmCfg = null;
 function llmCfg(){ if(_llmCfg) return _llmCfg; try{ _llmCfg=JSON.parse(fs.readFileSync(LLM_CFG_FILE(),'utf8')); }catch(e){ _llmCfg=null } return _llmCfg }
-const LLM_SYS = () => `你是抖音小店申诉助手。根据买家评价的内容和星级，从平台允许的举报原因里选最合适的一个。
+const LLM_SYS = () => `你是一名资深抖音小店运营，负责判断中差评是否值得申诉举报。
 
-可选原因：
-1. report_reason_fake_negative_comment — 评价等级为差评内容为好评
-2. report_reason_evaluate_product_other_shop — 评价内容非交易商品或内容无意义
-3. report_reason_wrong_size — 消费者买错型号
+【举报机会只有一次，必须严谨：宁可交人工，也不要瞎报】
+
+平台允许的举报原因（只能从这 6 个里选）：
+1. report_reason_fake_negative_comment — 评价等级为差评内容为好评（内容是夸赞/满意，星级却是 1~3 星）
+2. report_reason_evaluate_product_other_shop — 评价内容非交易商品或内容无意义。适用：
+   · 纯乱码、纯数字、纯符号、与商品完全无关的内容
+   · 抱怨的对象**与本店商品、本店服务无关**（快递员态度、驿站服务、天气、平台规则、其他店铺等），本店商品和服务本身没有问题
+   · **纯主观审美或个人偏好**（上身不好看、不合适、不喜欢、颜色不好看、没想象中好看等），且没有指出任何具体商品缺陷
+   · **笼统的主观差评**（不值、一般般、不满意、没有想象中好、踩坑了 等），只是表达不满情绪但没有指出本店商品或服务的任何具体缺陷
+3. report_reason_wrong_size — 消费者买错型号（明确是自己尺码买错/穿不下/码大码小，不是在说商品质量问题）
 4. report_reason_low_politics_guns — 评价内容中包含辱骂或不当词汇
-5. report_reason_negative_comment_compensation — 利用中差评骗赔
+5. report_reason_negative_comment_compensation — 利用中差评骗赔（威胁索赔、要钱）
 6. report_reason_business_evil_compete — 同行恶意竞争
 
-判断规则：
-- 内容是好评/满意/夸赞，但星级是 1~3 星 → 1
-- 内容是纯乱码、无意义符号/数字、与商品完全无关 → 2
-- 【重要】评价内容为空 → 平台一律不受理（会提示"首次评价内容为空，无法定位评价原因"）→ 返回 null
-- 明确说尺码买错/穿不下/码大码小（不是质量问题）→ 3
-- 含侮辱辱骂词汇 → 4
-- 威胁索赔/要钱 → 5
-- 明显同行恶意 → 6
-- 内容在反馈真实商品或服务问题（质量差、色差、起球、皱、不值、物流或驿站差等）→ 返回 null
-- 拿不准 → 返回 null
+请像专业运营一样，根据【星级 + 评价内容 + 飞鸽聊天记录】判断，给出四选一的结论：
 
-只输出 JSON，不要解释：{"reason":"<上面6个代码之一，或null>","confidence":0到1,"why":"一句话"}`;
+- verdict="report"：确实满足上面某个举报原因 → 给出 reason 代码
+- verdict="real_problem"：买家指出了**本店商品或本店服务的具体缺陷**（质量差、色差、起球、缩水、开线、有异味、实物与描述不符、穿着有问题、该发货而物流一直不动等）→ 不该举报，交人工处理
+- verdict="uncertain"：信息不足或拿不准（例如**评价内容为空**——平台对空内容多不受理——或一句话看不出指向）→ 交人工
 
-async function llmClassifyReview(rank, content){
-  const cfg=llmCfg(); if(!cfg||!cfg.key) return {reason:null,confidence:0,why:'未配置大模型'};
+判断要点：
+- 只要买家**指出了本店商品/服务的具体缺陷** → real_problem
+- 只要抱怨的是**跟本店商品/服务无关的第三方**、**纯主观审美偏好**、或**笼统的差评情绪** → report（原因 2）
+- 分不清是"主观感受"还是"具体缺陷" → uncertain（交人工）
+
+严格只输出 JSON，不要任何解释：
+{"verdict":"report|real_problem|uncertain","reason":"<6个代码之一或null>","confidence":0到1,"why":"一句话说明理由"}`;
+
+async function llmClassifyReview(rank, content, chat){
+  const cfg=llmCfg(); if(!cfg||!cfg.key) return {verdict:'uncertain',reason:null,confidence:0,why:'未配置大模型'};
   for(let attempt=0; attempt<2; attempt++){
     try{
       const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(), 25000);
       const r=await fetch(cfg.base_url+'/chat/completions',{ method:'POST', signal:ctrl.signal,
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfg.key},
         body: JSON.stringify({ model:cfg.model, temperature:0, max_tokens:300,
-          messages:[{role:'system',content:LLM_SYS()},{role:'user',content:'星级：'+(rank||'中评')+'\n评价内容：'+(String(content||'').trim()||'（空）')}] }) });
+          messages:[{role:'system',content:LLM_SYS()},{role:'user',content:'星级：'+(rank||'中评')+'\n评价内容：'+(String(content||'').trim()||'（空）')+'\n飞鸽聊天记录：'+(chat&&chat.length?chat.join(' | ').slice(0,800):'（买家全程没有任何发言）')}] }) });
       clearTimeout(timer);
       const j=await r.json();
       let txt=((j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||'').trim();
@@ -422,10 +429,12 @@ async function llmClassifyReview(rank, content){
       const o=JSON.parse(txt);
       const valid=['report_reason_fake_negative_comment','report_reason_evaluate_product_other_shop','report_reason_wrong_size','report_reason_low_politics_guns','report_reason_negative_comment_compensation','report_reason_business_evil_compete'];
       if(o.reason && valid.indexOf(o.reason)<0) o.reason=null;
-      return {reason:o.reason||null, confidence:Number(o.confidence)||0, why:String(o.why||'').slice(0,80)};
-    }catch(e){ if(attempt===1) return {reason:null,confidence:0,why:'大模型调用失败:'+String(e.message||e).slice(0,40)}; }
+      const V=['report','real_problem','uncertain'];
+      let v=V.indexOf(o.verdict)>=0?o.verdict:(o.reason?'report':'uncertain');
+      return {verdict:v, reason:o.reason||null, confidence:Number(o.confidence)||0, why:String(o.why||'').slice(0,80)};
+    }catch(e){ if(attempt===1) return {verdict:'uncertain',reason:null,confidence:0,why:'大模型调用失败:'+String(e.message||e).slice(0,40)}; }
   }
-  return {reason:null,confidence:0,why:'大模型无结果'};
+  return {verdict:'uncertain',reason:null,confidence:0,why:'大模型无结果'};
 }
 
 // ===== 评价原因：按内容自动判断（拿不准返回 null → 交人工）=====
@@ -562,61 +571,59 @@ function createAppeal({store, jobs, app}){
       for(const c of items){
        try{
         const flygeUrl = c.flyge_url || ('https://im.jinritemai.com/pc_seller_v2/main/workspace?fromOrder=' + c.order_id);
-        // ① 预检（接口版，秒级；不用开选择器点勾选）
-        if(pageReady!==true){ await rA.loadURL(reportUrl).catch(()=>{}); await sleep(3000); pageReady=true; }
-        const isRev = (c.kind==='review');
-        const codes = isRev ? REVIEW_CODES : [SCENE_CODES.quality];
-        let code=null, status='', lastStatus='', tried=[], cid='', revProduct={}, revContent='', revRank='', revLLM={};
-        if(isRev){
-          // 规则②：按评价内容自动判断举报原因；拿不准 → 人工介入（举报机会只有一次）
-          let picked=null, llmInfo={};
-          try{ llmInfo=await llmClassifyReview(c.level||'中评', c.content); }catch(e){ llmInfo={}; }
-          if(llmInfo.reason){
-            const LABELS={'report_reason_fake_negative_comment':'评价等级为差评内容为好评','report_reason_evaluate_product_other_shop':'评价内容非交易商品或内容无意义','report_reason_wrong_size':'消费者买错型号','report_reason_low_politics_guns':'评价内容中包含辱骂或不当词汇','report_reason_negative_comment_compensation':'利用中差评骗赔','report_reason_business_evil_compete':'同行恶意竞争'};
-            picked={sub:llmInfo.reason,label:LABELS[llmInfo.reason]||''};
-          }
-          if(!picked) picked = pickReviewReason(c.content);   // 大模型没结果时用关键词兜底
-          if(!picked){
-            saveSkip(c.order_id,'需人工介入·原因拿不准',shopName);
-            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·原因拿不准',
-                 detail:{content:String(c.content||'').slice(0,60), llm:llmInfo}});
-            continue;
-          }
-          let ck={}; try{ ck=JSON.parse(await runPage(rA,pageReviewCheck,{order:c.order_id,scene:'report_type_unusual_comment',sub:picked.sub})||'{}'); }catch(e){ ck={}; }
-          tried.push({sub:picked.sub,label:picked.label,status:ck.status||'',hover:ck.hover||'',can:ck.can_select});
-          if(!ck.can_select){
-            saveSkip(c.order_id,'需人工介入·平台判定'+((ck.status)||'不可举报'),shopName);
-            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·平台判定'+((ck.status)||'不可举报'),detail:{tried:tried,hover:ck.hover||''}});
-            continue;
-          }
-          code={scene:'report_type_unusual_comment',sub:picked.sub,label:picked.label};
-          cid=ck.comment_id||''; status='可举报';
-          revProduct={product_name:ck.product_name||'',product_id:ck.product_id||''};
-          revContent=String(ck.content||c.content||'').slice(0,60); revRank=ck.rank||''; revLLM=llmInfo;
-        }
-        for(const cd of (code?[]:codes)){
-          let pre={}; try{ pre=JSON.parse(await runPage(rA,pagePreCheckApply,{order:c.order_id,scene:cd.scene,sub:cd.sub})||'{}'); }catch(e){ pre={error:String(e&&e.message||e)}; }
-          let st=''; try{ const dd=(pre&&pre.data)||{}; st=String((dd.sku_orders_check_res||{})[c.order_id]||(dd.orders_check_res||{})[c.order_id]||''); }catch(e){}
-          tried.push({sub:cd.sub,label:cd.label,status:st,code:pre&&pre.code});
-          if(/(不可举报|无需举报|审核中|已举报)/.test(st)){ lastStatus=st; continue; }   // 换下一个原因试
-          if(pre && pre.code===0 && !pre.error){ code=cd; status=st; break; }
-          if(!lastStatus) lastStatus='预检异常';
-        }
-        if(!code){
-          if(/审核中|已举报/.test(lastStatus)){ saveSkip(c.order_id,'已举报过',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'已举报过('+lastStatus+')'}); continue; }
-          if(lastStatus==='无需举报'){ saveSkip(c.order_id,'无需举报',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'无需举报'}); continue; }
-          if(lastStatus==='不可举报'){ saveSkip(c.order_id,'不可举报',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'不可举报',detail:{tried:tried}}); continue; }
-          log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'预检失败',detail:{tried:tried}}); continue;
-        }
-        // ② 飞鸽（窗口B）——装网络钩子便于找消息接口
+        // ① 飞鸽核查（先拿聊天记录，供"像运营一样判断"用）
+        if(pageReady!==true){ await rA.loadURL(reportUrl).catch(()=>{}); await sleep(2500); pageReady=true; }
         if(!netHooked){ try{ await rB.loadURL('about:blank'); }catch(e){} await installNetHook(rB); netHooked=true; }
         await rB.loadURL(flygeUrl).catch(()=>{});
         let f=null;
         for(let i=0;i<20;i++){ await sleep(1500); try{ f=JSON.parse(await runPage(rB,pageFlyge)||'{}'); }catch(e){ f=null; } if(f&&f.ready) break; }
         if(!f||!f.ready){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'飞鸽未加载'}); continue; }
         let net=null; try{ net=JSON.parse(await runPage(rB,pageReadNet)||'{}'); }catch(e){}
+        // 买家发过图片 / 有沟通 → 一律人工介入（举报机会只有一次）
         if(f.buyer_imgs>0){ saveSkip(c.order_id,'需人工介入·买家发过图片',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·买家发过图片('+f.buyer_imgs+')',detail:{net:net}}); continue; }
         if(f.buyer_count>0){ saveSkip(c.order_id,'需人工介入·买家有沟通',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·买家有沟通 '+f.buyer_count+' 条',detail:{net:net,buyer_msgs:f.buyer_msgs}}); continue; }
+
+        // ② 判断（中差评：大模型综合内容+星级+聊天记录；品退：平台接口预检）
+        const isRev = (c.kind==='review');
+        let code=null, cid='', status='', tried=[], revLLM={}, revContent='', revRank='';
+        const LABELS={'report_reason_fake_negative_comment':'评价等级为差评内容为好评','report_reason_evaluate_product_other_shop':'评价内容非交易商品或内容无意义','report_reason_wrong_size':'消费者买错型号','report_reason_low_politics_guns':'评价内容中包含辱骂或不当词汇','report_reason_negative_comment_compensation':'利用中差评骗赔','report_reason_business_evil_compete':'同行恶意竞争'};
+        if(isRev){
+          try{ revLLM=await llmClassifyReview(c.level||'中评', c.content, f.buyer_msgs||[]); }catch(e){ revLLM={verdict:'uncertain'}; }
+          if(revLLM.verdict==='real_problem'){
+            saveSkip(c.order_id,'需人工介入·买家反馈真实问题',shopName);
+            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·买家反馈真实问题',detail:{llm:revLLM,content:String(c.content||'').slice(0,60)}});
+            continue;
+          }
+          if(revLLM.verdict!=='report'||!revLLM.reason){
+            const fb=pickReviewReason(c.content);                       // 大模型拿不准时用关键词兜底
+            if(!fb){
+              saveSkip(c.order_id,'需人工介入·判断不确定',shopName);
+              log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·判断不确定',detail:{llm:revLLM,content:String(c.content||'').slice(0,60)}});
+              continue;
+            }
+            revLLM.reason=fb.sub; revLLM.verdict='report'; revLLM.why=(revLLM.why||'')+'（关键词兜底）';
+          }
+          const cd={scene:'report_type_unusual_comment',sub:revLLM.reason,label:LABELS[revLLM.reason]||''};
+          let ck={}; try{ ck=JSON.parse(await runPage(rA,pageReviewCheck,{order:c.order_id,scene:cd.scene,sub:cd.sub})||'{}'); }catch(e){ ck={}; }
+          tried.push({sub:cd.sub,label:cd.label,status:ck.status||'',hover:ck.hover||'',can:ck.can_select});
+          if(!ck.can_select){
+            saveSkip(c.order_id,'需人工介入·平台判定'+((ck.status)||'不可举报'),shopName);
+            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·平台判定'+((ck.status)||'不可举报'),detail:{llm:revLLM,tried:tried,hover:ck.hover||''}});
+            continue;
+          }
+          code=cd; cid=ck.comment_id||''; status='可举报';
+          revContent=String(ck.content||c.content||'').slice(0,60); revRank=ck.rank||'';
+        } else {
+          const cd=SCENE_CODES.quality;
+          let pre={}; try{ pre=JSON.parse(await runPage(rA,pagePreCheckApply,{order:c.order_id,scene:cd.scene,sub:cd.sub})||'{}'); }catch(e){ pre={error:String(e&&e.message||e)}; }
+          let st=''; try{ const dd=(pre&&pre.data)||{}; st=String((dd.sku_orders_check_res||{})[c.order_id]||(dd.orders_check_res||{})[c.order_id]||''); }catch(e){}
+          tried.push({sub:cd.sub,status:st,code:pre&&pre.code});
+          if(/审核中|已举报/.test(st)){ saveSkip(c.order_id,'已举报过',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'已举报过('+st+')'}); continue; }
+          if(st==='无需举报'){ saveSkip(c.order_id,'无需举报',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'无需举报'}); continue; }
+          if(st==='不可举报'){ saveSkip(c.order_id,'不可举报',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'不可举报',detail:{tried:tried}}); continue; }
+          if(!(pre && pre.code===0 && !pre.error)){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'预检失败',detail:{tried:tried}}); continue; }
+          code=cd; status=st||'可举报';
+        }
         // ③ 截图打包（全在窗口B，提前存盘；不碰窗口A）
         const dir=path.join(APPEAL_PACK_DIR(),_safe(shopName),_safe(c.order_id));
         const shots=[]; const isReview=c.kind==='review';
