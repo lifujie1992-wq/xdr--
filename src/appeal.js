@@ -428,7 +428,10 @@ ${(opts||[]).map((o,i)=>`${i+1}. ${o.code} — ${o.name}${o.desc?('（'+String(o
 请像专业运营一样，根据【星级 + 评价内容 + 飞鸽聊天记录（含买家是否发过图片）】判断，给出以下结论之一：
 
 - verdict="report"：确实满足上面某个举报原因 → 给出 reason 代码
-- verdict="real_problem"：买家指出了**本店商品或本店服务的具体缺陷**（质量差、色差、起球、缩水、开线、有异味、实物与描述不符、穿着有问题、该发货而物流一直不动等）→ 不该举报，交人工处理
+- 【最高优先级规则】判定要看**有没有图片/视频证据**：
+  · 买家**没有**提供任何图片/视频证据 → 无论评价说什么（质量差、不值、色差、皱），都属**主观感受** → verdict="report"，reason=原因2
+  · 买家**发来了图片/视频且能证明商品质量问题** → verdict="quality_claim"（交人工）
+- verdict="real_problem"：买家指出了本店商品或本店服务的**具体缺陷**，且**有图片/视频证据**（质量差、色差、起球、缩水、开线、有异味、实物与描述不符等）→ 不该举报，交人工处理
 - verdict="quality_claim"：**买家在飞鸽聊天中提出了明确的商品质量问题**（例如说质量差、有瑕疵、破损、开线、掉色，或发来问题图片视频），需要卖家准备质量证明材料应对 → 交人工
 - verdict="uncertain"：信息不足或拿不准（例如**评价内容为空**——平台对空内容多不受理——或一句话看不出指向）→ 交人工
 
@@ -667,10 +670,15 @@ function createAppeal({store, jobs, app}){
             log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需卖家提供质量证明',detail:{llm:llmInfo,imgs:f.buyer_imgs,msgs:f.buyer_count}});
             continue;
           }
-          if(llmInfo.verdict==='real_problem'){
-            saveSkip(c.order_id,'需人工介入·买家反馈真实问题',shopName);
-            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·买家反馈真实问题',detail:{llm:llmInfo,content:String(c.content||'').slice(0,60)}});
+          if(llmInfo.verdict==='real_problem' && (f.buyer_imgs||0)>0){
+            saveSkip(c.order_id,'需卖家提供质量证明',shopName);
+            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需卖家提供质量证明（有图片证据）',detail:{llm:llmInfo,imgs:f.buyer_imgs,content:String(c.content||'').slice(0,60)}});
             continue;
+          }
+          if(llmInfo.verdict==='real_problem'){
+            // 无图片证据 → 按主观处理，改为举报（原因2）
+            llmInfo.verdict='report'; llmInfo.reason='report_reason_evaluate_product_other_shop';
+            llmInfo.why=(llmInfo.why||'')+'（无图片证据，按主观感受处理）';
           }
           if(llmInfo.verdict==='report'&&llmInfo.reason&&allowed.indexOf(llmInfo.reason)<0){
             llmInfo.why=(llmInfo.why||'')+'（该原因平台不允许，改用允许清单中的）';
