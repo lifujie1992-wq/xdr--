@@ -121,8 +121,8 @@ h2{font-size:14px;margin:22px 0 10px}
     <div class="fbar">
       <div class="chips" id="chips"></div>
       <div class="frow">
-        <select id="fshop" title="店铺"></select>
         <div class="seg" id="fkindSeg"></div>
+        <select id="fshop" title="店铺"></select>
         <select id="frange">
           <option value="">全部时间</option><option value="1">今天</option><option value="7">近 7 天</option>
           <option value="30">近 30 天</option><option value="90">近 90 天</option><option value="custom">自定义…</option>
