@@ -420,11 +420,15 @@ function createAppealWeb({app, appeal}){
           else if(/未查到/.test(rs)){ why='平台查询未找到该单，需重试'; tags.push('待重试'); }
           else if(/演练模式/.test(rs)){ why='演练模式跑过但未提交：平台允许举报（can_select=true），需人工确认后提交'; tags.push('待提交(演练)'); }
         }
+        // 转人工 → 独立状态（AI 拿不准/有图证据/平台异常，需要人处理）
+        if(why && tags.some(t=>/^(需人工介入|需卖家提供质量证明)$/.test(t) || t==='待重试')) status='需转人工';
         // 平台有记录 → 覆盖为平台事实
         const av=results[r.order_id];
         let status='未举报';
         if(av){ status=auditOf(r.order_id); tags.push(...auditTags(r.order_id)); if(!why) why=String(av.resultMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0]; }
         if(e && e.result==='已提交' && !av) status='已举报';
+        if(!av && !(e&&e.result==='已提交') && tags.some(t=>/^(需人工介入|需卖家提供质量证明|待重试)$/.test(t))) status='需转人工';
+        if(status==='需转人工' && !tags.some(t=>t==='需转人工')) tags.unshift('需转人工');
         if(status==='需转人工') tags.unshift('需转人工');
         items.push({kind:label,shop:r.shop||'',order_id:r.order_id||'',reason:r.reason||r.content||'',date:dd||'',
           desc:r.report_desc||'',status:status,why:why,tags:tags,submitted_at:(e&&e.at)||'',
