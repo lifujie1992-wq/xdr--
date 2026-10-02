@@ -284,74 +284,83 @@ function createAppealWeb({app, appeal}){
   function readResults(){ try{ const rf=readJson(path.join(reportsDir(),'results.json')); return (rf&&rf.map)||{} }catch(e){ return {} } }
   function buildData(){
     const logs=collectLogs(), results=readResults();
-    // 主状态：已举报 / 未举报 / 举报成功；其余作为二级标签（取最新一条记录，可拆成多个标签）
+    // 平台审核状态
+    const auditOf=(oid)=>{ const v=results[oid]; if(!v) return null; const a=v.auditStatus; return a===6?'举报成功':(a===3?'举报失败':'已举报'); };
+    const auditTags=(oid)=>{ const v=results[oid]; if(!v) return []; const a=v.auditStatus; if(a===6) return ['已通过']; if(a===3) return ['已驳回']; return ['审核中']; };
+    const arrOf=t=>{ if(t instanceof Set) return [...t]; if(Array.isArray(t)) return t; return t?[String(t)]:[]; };
+
+    // 每单取“最新一条日志”，并记住是否曾经提交成功过
     const last={}, everSubmitted=new Set();
     for(const e of logs){ if(!e.order) continue; last[e.order]=e; if(e.result==='已提交') everSubmitted.add(e.order); }
-    const done=new Map();
-    const TAGS=['不可举报','无需举报','已举报过','买家有沟通','飞鸽未加载','未查到','勾选失败','需卖家提供质量证明'];
-    for(const oid of Object.keys(last)){
-      const e=last[oid];
-      const hasRec=!!results[oid];
-      const cur={tags:new Set(), at:e.at, shop:e.shop, kind:e.kind, submitted:(everSubmitted.has(oid)||hasRec), llmwhy:''};
-      if(cur.submitted) cur.submitter='AI提交';
-      if(!hasRec && !cur.submitted) {
-        const rs=String(e.reason||'');
-        const lw=((e.detail||{}).llm||{}).why || '';
-        if(lw) cur.llmwhy=String(lw);
-        if(/^需人工介入/.test(rs)){ cur.tags.add('需人工介入'); if(/买家发过图片/.test(rs)) cur.tags.add('买家发过图片'); if(/买家有沟通/.test(rs)) cur.tags.add('买家有沟通'); if(/买家反馈真实问题/.test(rs)) cur.tags.add('买家反馈真实问题'); }
-        const base=rs.split(' ')[0].split('(')[0].split('·')[0];
-        if(TAGS.indexOf(base)>=0) cur.tags.add(base);
-      }
-      done.set(oid,cur);
-    }
-    const arrOf=t=>{ if(t instanceof Set) return [...t]; if(Array.isArray(t)) return t; return t?[String(t)]:[]; };
-    const A=(oid)=>{ const v=results[oid]; if(!v) return null; const a=v.auditStatus; return a===6?'举报成功':'已举报'; };
-    // 主分类：只有 4 类
-    const BUCKET=(oid,s,tags)=>{
-      const v=results[oid]; const a=v?v.auditStatus:null;
-      const arr=[].concat(tags||[]);
-      const joined=arr.join(' ');
-      if(a===6) return {bucket:'举报成功', why:'平台审核通过：'+String(v.resultMsg||'').replace(/^.*平台动作[:：]/,'').split(';')[0]};
-      if(a===3) return {bucket:'举报失败', why:'平台拒绝理由：'+String(v.resultMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0]};
-      if(a===1) return {bucket:'已举报', why:'已提交举报（平台审核中）'};
-      if(s==='已举报') return {bucket:'已举报', why:'已提交举报（平台记录待同步）'};
-      if(/不可举报/.test(joined)) return {bucket:'不可举报', why:/首次评价内容为空/.test(joined)?'平台提示：首次评价内容为空，无法定位评价原因':'平台判定该评价/售后不符合举报条件'};
-      if(/无需举报/.test(joined)) return {bucket:'不可举报', why:'平台判定无需举报'};
-      if(/已举报过/.test(joined)) return {bucket:'不可举报', why:'该订单已有举报记录（平台一单一报）'};
-      const aiWhy=(typeof s==='object'&&s&&s.llmwhy)?String(s.llmwhy):'';
-      if(/需卖家提供质量证明/.test(joined)) return {bucket:'需转人工', why:aiWhy||'飞鸽聊天中有图片证据证明商品质量问题，需准备质量证明材料'};
-      if(/需人工介入/.test(joined)) return {bucket:'需转人工', why:aiWhy||'AI 判断不确定，需人工核实'};
-      if(/买家反馈真实问题/.test(joined)) return {bucket:'需转人工', why:aiWhy||'买家指出本店商品/服务的具体缺陷，不宜举报'};
-      if(/买家发过图片/.test(joined)) return {bucket:'需转人工', why:'买家发来过图片/视频证据'};
-      if(/买家有沟通/.test(joined)) return {bucket:'需转人工', why:'买家与客服有过沟通，需人工查看聊天内容'};
-      if(/判断不确定/.test(joined)) return {bucket:'需转人工', why:aiWhy||'内容为空或信息不足，AI 无法判断，需人工'};
-      if(/飞鸽未加载|未查到|勾选失败/.test(joined)) return {bucket:'需转人工', why:'平台页面/查询异常，需重试'};
-      if(/未提交\(演练\)/.test(joined)) return {bucket:'需转人工', why:'演练模式跑过但未提交：平台允许举报（can_select=true），需人工确认后提交'};
-      if(/未处理/.test(joined)) return {bucket:'需转人工', why:'尚未处理'};
-      return {bucket:'需转人工', why:'需人工核实'};
+
+    // 转人工的具体理由（来自最新日志）
+    const humanWhy=(e)=>{
+      const dd=e.detail||{};
+      const ai=dd.llm&&dd.llm.why?String(dd.llm.why):'';
+      const rs=String(e.reason||'');
+      if(/需卖家提供质量证明/.test(rs)) return ai||'飞鸽聊天中有图片证据证明商品质量问题，需准备质量证明材料';
+      if(/买家反馈真实问题/.test(rs)) return ai||'买家指出了本店商品/服务的具体缺陷，不宜举报';
+      if(/买家发过图片/.test(rs)) return '买家发来过图片/视频证据';
+      if(/判断不确定/.test(rs)) return ai||'内容为空或信息不足，AI 无法判断，需人工';
+      if(/买家有沟通/.test(rs)) return ai||'买家与客服有过沟通，需人工查看聊天内容';
+      if(/飞鸽未加载|未查到|勾选失败/.test(rs)) return '平台页面/查询异常：'+(rs||'');
+      return ai||'需人工核实';
     };
-    const tagOf=(oid)=>{ const v=results[oid]; if(!v) return []; const a=v.auditStatus; if(a===6) return ['已通过']; if(a===3) return ['已驳回']; return ['审核中']; };
+
     const items=[]; const seen=new Set();
     const d0=new Date(Date.now()-30*86400000), minDate=d0.getFullYear()+'-'+String(d0.getMonth()+1).padStart(2,'0')+'-'+String(d0.getDate()).padStart(2,'0');
+
+    // ① 清单里的单（品退候选 + 中差评全量）
     for(const [kind,prefix,label] of [['quality','quality_returns','品退'],['review','negative_reviews','中差评']]){
-      for(const r of loadWorklist(prefix)){ const dd=r.apply_date||r.comment_date||''; if(dd && dd<minDate) continue;
-        seen.add(r.order_id); const s=done.get(r.order_id);
-        const BK=BUCKET(r.order_id,s,(s?(s.tags||[]):[]));
-        items.push({kind:label,shop:r.shop||'',order_id:r.order_id||'',reason:r.reason||r.content||'',date:r.apply_date||r.comment_date||'',desc:r.report_desc||'',status:BK.bucket, why:BK.why, tags:[...arrOf(s&&s.tags),...(A(r.order_id)?tagOf(r.order_id):[])].length?[...arrOf(s&&s.tags),...(A(r.order_id)?tagOf(r.order_id):[])]:['未处理'], submitted_at:(s&&s.at)||'',
-          product_name:r.product_name||'', product_id:r.product_id?String(r.product_id):'', submitter:(s&&s.submitter)||'',
-          auditStatus:(results[r.order_id]&&results[r.order_id].auditStatus!=null)?results[r.order_id].auditStatus:null, auditMsg:(results[r.order_id]&&results[r.order_id].resultMsg)||''}); }
+      const src=(prefix==='negative_reviews')?unionAllReviews():unionWorklist(prefix);
+      for(const r of src){
+        const dd=r.apply_date||r.comment_date||'';
+        if(dd && dd<minDate) continue;
+        if(seen.has(r.order_id)) continue; seen.add(r.order_id);
+        const e=last[r.order_id];
+        const tags=[]; let why='';
+        if(e){
+          const rs=String(e.reason||'');
+          if(e.result==='已提交'){ /* 已举报，走平台状态 */ }
+          else if(/^需人工介入/.test(rs)||/需卖家提供质量证明/.test(rs)){
+            why=humanWhy(e); tags.push('需人工介入');
+            if(/买家发过图片/.test(rs)) tags.push('买家发过图片');
+            if(/买家反馈真实问题/.test(rs)) tags.push('买家反馈真实问题');
+            if(/需卖家提供质量证明/.test(rs)) tags.push('需卖家提供质量证明');
+          }
+          else if(/不可举报/.test(rs)){ why='平台判定不符合举报条件'; tags.push('不可举报'); }
+          else if(/无需举报/.test(rs)){ why='平台判定无需举报'; tags.push('无需举报'); }
+          else if(/已举报过/.test(rs)){ why='该订单已有举报记录（平台一单一报）'; tags.push('已举报过'); }
+          else if(/买家有沟通/.test(rs)){ why='买家与客服有过沟通，需人工查看聊天内容'; tags.push('买家有沟通'); }
+          else if(/飞鸽未加载/.test(rs)){ why='飞鸽页面未加载成功，需重试'; tags.push('待重试'); }
+          else if(/未查到/.test(rs)){ why='平台查询未找到该单，需重试'; tags.push('待重试'); }
+          else if(/演练模式/.test(rs)){ why='演练模式跑过但未提交：平台允许举报（can_select=true），需人工确认后提交'; tags.push('待提交(演练)'); }
+        }
+        // 平台有记录 → 覆盖为平台事实
+        const av=results[r.order_id];
+        let status='未举报';
+        if(av){ status=auditOf(r.order_id); tags.push(...auditTags(r.order_id)); if(!why) why=String(av.resultMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0]; }
+        if(e && e.result==='已提交' && !av) status='已举报';
+        items.push({kind:label,shop:r.shop||'',order_id:r.order_id||'',reason:r.reason||r.content||'',date:dd||'',
+          desc:r.report_desc||'',status:status,why:why,tags:tags,submitted_at:(e&&e.at)||'',
+          product_name:r.product_name||'',product_id:r.product_id?String(r.product_id):'',
+          submitter:(everSubmitted.has(r.order_id))?'AI提交':'',
+          auditStatus:(av&&av.auditStatus!=null)?av.auditStatus:null, auditMsg:(av&&av.resultMsg)||''});
+      }
     }
-    for(const [oid,v] of Object.entries(results)){ if(seen.has(oid)) continue; seen.add(oid);
-      const BK=BUCKET(oid,null,tagOf(oid));
-      items.push({kind:(v.scene||'').indexOf('售后')>=0?'品退':'中差评',shop:v.shop||'',order_id:oid,reason:v.sub||'',date:(v.created||'').slice(0,10),desc:'',status:BK.bucket, why:BK.why, tags:tagOf(oid), submitted_at:v.created||'',auditStatus:(v.auditStatus!=null?v.auditStatus:null),auditMsg:v.resultMsg||''}); }
-    for(const [oid,s] of done){ if(seen.has(oid)) continue; seen.add(oid);
-      items.push({kind:s.kind==='review'?'中差评':(s.kind==='quality'?'品退':'—'),shop:s.shop||'',order_id:oid,reason:(s.status==='不可举报'?'（平台判定不可举报）':'（已提交）'),date:'',desc:'',status:BUCKET(oid,s,[...arrOf(s.tags),(s.status||''),...(A(oid)?tagOf(oid):[])].length?[...arrOf(s.tags),(s.status||''),...(A(oid)?tagOf(oid):[])]:['未处理']).bucket, tags:[...arrOf(s.tags),...(A(oid)?tagOf(oid):[])].length?[...arrOf(s.tags),...(A(oid)?tagOf(oid):[])]:['未处理'], submitted_at:s.at||'',
-        auditStatus:(results[oid]&&results[oid].auditStatus!=null)?results[oid].auditStatus:null, auditMsg:(results[oid]&&results[oid].resultMsg)||''}); }
+    // ② 平台有记录、但不在清单里的单
+    for(const [oid,v] of Object.entries(results)){
+      if(seen.has(oid)) continue; seen.add(oid);
+      items.push({kind:(v.scene||'').indexOf('售后')>=0?'品退':'中差评',shop:v.shop||'',order_id:oid,reason:v.sub||'',
+        date:(v.created||'').slice(0,10),desc:'',status:auditOf(oid),why:(auditOf(oid)==='举报失败')?('平台拒绝理由：'+String(v.resultMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0]):'已提交举报（平台审核中）',
+        tags:auditTags(oid),submitted_at:v.created||'',submitter:'AI提交',
+        product_name:'',product_id:'',
+        auditStatus:(v.auditStatus!=null?v.auditStatus:null),auditMsg:v.resultMsg||''});
+    }
     return {generated_at:new Date().toISOString(), _results:results, count:items.length,
-      appealable:0, appealed:items.filter(i=>/^(已举报|举报中|已通过|已驳回)$/.test(i.status)).length,
-      notReportable:items.filter(i=>i.status==='不可举报').length, notNeed:items.filter(i=>i.status==='无需举报').length, items};
+      items};
   }
-  function buildStats(){
+    function buildStats(){
     const data=buildData(), logs=collectLogs(), results=readResults();
     const subMap=new Map();
     for(const e of logs){ if(e.result!=='已提交'||!e.order) continue; if(!subMap.has(e.order)) subMap.set(e.order,e); }
