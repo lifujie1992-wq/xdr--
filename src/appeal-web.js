@@ -322,6 +322,7 @@ function createAppealWeb({app, appeal}){
       if(/买家有沟通/.test(joined)) return {bucket:'需转人工', why:'买家与客服有过沟通，需人工查看聊天内容'};
       if(/判断不确定/.test(joined)) return {bucket:'需转人工', why:'内容为空或信息不足，AI 无法判断，需人工'};
       if(/飞鸽未加载|未查到|勾选失败/.test(joined)) return {bucket:'需转人工', why:'平台页面/查询异常，需重试'};
+      if(/未提交\(演练\)/.test(joined)) return {bucket:'需转人工', why:'演练模式跑过但未提交：平台允许举报（can_select=true），需人工确认后提交'};
       if(/未处理/.test(joined)) return {bucket:'需转人工', why:'尚未处理'};
       return {bucket:'需转人工', why:'需人工核实'};
     };
