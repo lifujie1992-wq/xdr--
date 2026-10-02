@@ -268,6 +268,13 @@ function createAppealWeb({app, appeal}){
   const dataDir = () => path.join(app.getPath('userData'),'business-data');
   const reportsDir = () => path.join(app.getPath('userData'),'appeal-reports');
   const readJson = f => { try{ return JSON.parse(fs.readFileSync(f,'utf8')) }catch(e){ return null } };
+  function loadAllReviews(){
+    const map=new Map();
+    try{ const files=fs.readdirSync(dataDir()).filter(f=>f.startsWith('reviews-all-')&&f.endsWith('.json')).sort();
+      for(const f of files){ for(const r of (readJson(path.join(dataDir(),f))||[])){ if(r.order_id){ const old=map.get(r.order_id); map.set(r.order_id, old?Object.assign({},old,r):r); } } }
+    }catch(e){}
+    return [...map.values()];
+  }
   function loadWorklist(prefix){
     const map=new Map();
     try{ const files=fs.readdirSync(dataDir()).filter(f=>f.startsWith('appeal-worklist-'+prefix+'-')&&f.endsWith('.json')).sort();
@@ -312,7 +319,7 @@ function createAppealWeb({app, appeal}){
 
     // ① 清单里的单（品退候选 + 中差评全量）
     for(const [kind,prefix,label] of [['quality','quality_returns','品退'],['review','negative_reviews','中差评']]){
-      const src=(prefix==='negative_reviews')?unionAllReviews():unionWorklist(prefix);
+      const src=(prefix==='negative_reviews')?loadAllReviews():loadWorklist(prefix);
       for(const r of src){
         const dd=r.apply_date||r.comment_date||'';
         if(dd && dd<minDate) continue;
