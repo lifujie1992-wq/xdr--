@@ -38,6 +38,7 @@ table.list td.tags .badge{margin:1px 2px 1px 0;font-size:10px;padding:2px 6px}
 .tg-human{background:#fdf0e6;color:#c2662b;font-weight:600}
 .tg-no{background:#fdeceb;color:#c0392b}
 .tg-warn{background:#fdf9f0;color:#b3762a}
+.tg-todo{background:#f1f5f9;color:#64748b;border:1px dashed #cbd5e1}
 .tg-info{background:#eef2f7;color:#64748b}
 th,td{padding:9px 10px;border-bottom:1px solid #eef2f7;text-align:left;font-size:12px;vertical-align:top}
 th{background:#f1f5f9;color:#64748b;font-weight:500;position:sticky;top:0}
@@ -299,14 +300,14 @@ function createAppealWeb({app, appeal}){
     for(const [kind,prefix,label] of [['quality','quality_returns','品退'],['review','negative_reviews','中差评']]){
       for(const r of loadWorklist(prefix)){ const dd=r.apply_date||r.comment_date||''; if(dd && dd<minDate) continue;
         seen.add(r.order_id); const s=done.get(r.order_id);
-        items.push({kind:label,shop:r.shop||'',order_id:r.order_id||'',reason:r.reason||r.content||'',date:r.apply_date||r.comment_date||'',desc:r.report_desc||'',status:(A(r.order_id)||((s&&s.submitted)?'已举报':'未举报')), tags:[...((s&&s.tags)||[]),...(A(r.order_id)?tagOf(r.order_id):[])], submitted_at:(s&&s.at)||'',
+        items.push({kind:label,shop:r.shop||'',order_id:r.order_id||'',reason:r.reason||r.content||'',date:r.apply_date||r.comment_date||'',desc:r.report_desc||'',status:(A(r.order_id)||((s&&s.submitted)?'已举报':'未举报')), tags:[...((s&&s.tags)||[]),...(A(r.order_id)?tagOf(r.order_id):[])].length?[...((s&&s.tags)||[]),...(A(r.order_id)?tagOf(r.order_id):[])]:['未处理'], submitted_at:(s&&s.at)||'',
           product_name:r.product_name||'', product_id:r.product_id?String(r.product_id):'', submitter:(s&&s.submitter)||'',
           auditStatus:(results[r.order_id]&&results[r.order_id].auditStatus!=null)?results[r.order_id].auditStatus:null, auditMsg:(results[r.order_id]&&results[r.order_id].resultMsg)||''}); }
     }
     for(const [oid,v] of Object.entries(results)){ if(seen.has(oid)) continue; seen.add(oid);
-      items.push({kind:(v.scene||'').indexOf('售后')>=0?'品退':'中差评',shop:v.shop||'',order_id:oid,reason:v.sub||'',date:(v.created||'').slice(0,10),desc:'',status:A(oid)||'已举报', tags:tagOf(oid), submitted_at:v.created||'',auditStatus:(v.auditStatus!=null?v.auditStatus:null),auditMsg:v.resultMsg||''}); }
+      items.push({kind:(v.scene||'').indexOf('售后')>=0?'品退':'中差评',shop:v.shop||'',order_id:oid,reason:v.sub||'',date:(v.created||'').slice(0,10),desc:'',status:A(oid)||'已举报', tags:(tagOf(oid).length?tagOf(oid):['已上报平台']), submitted_at:v.created||'',auditStatus:(v.auditStatus!=null?v.auditStatus:null),auditMsg:v.resultMsg||''}); }
     for(const [oid,s] of done){ if(seen.has(oid)) continue; seen.add(oid);
-      items.push({kind:s.kind==='review'?'中差评':(s.kind==='quality'?'品退':'—'),shop:s.shop||'',order_id:oid,reason:(s.status==='不可举报'?'（平台判定不可举报）':'（已提交）'),date:'',desc:'',status:A(oid)||(s.submitted?'已举报':'未举报'), tags:[...((s.tags)||[]),...(A(oid)?tagOf(oid):[])], submitted_at:s.at||'',
+      items.push({kind:s.kind==='review'?'中差评':(s.kind==='quality'?'品退':'—'),shop:s.shop||'',order_id:oid,reason:(s.status==='不可举报'?'（平台判定不可举报）':'（已提交）'),date:'',desc:'',status:A(oid)||(s.submitted?'已举报':'未举报'), tags:([...((s.tags)||[]),...(A(oid)?tagOf(oid):[])].length?[...((s.tags)||[]),...(A(oid)?tagOf(oid):[])]:['未处理']), submitted_at:s.at||'',
         auditStatus:(results[oid]&&results[oid].auditStatus!=null)?results[oid].auditStatus:null, auditMsg:(results[oid]&&results[oid].resultMsg)||''}); }
     return {generated_at:new Date().toISOString(), _results:results, count:items.length,
       appealable:0, appealed:items.filter(i=>/^(已举报|举报中|已通过|已驳回)$/.test(i.status)).length,
