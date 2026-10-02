@@ -390,7 +390,7 @@ const _safe = s => String(s||'').replace(/[\\/:*?"<>|\s]/g,'_');
 const LLM_CFG_FILE = () => path.join(baseDir(),'llm.json');
 let _llmCfg = null;
 function llmCfg(){ if(_llmCfg) return _llmCfg; try{ _llmCfg=JSON.parse(fs.readFileSync(LLM_CFG_FILE(),'utf8')); }catch(e){ _llmCfg=null } return _llmCfg }
-const LLM_SYS = (kinds, opts) => `你是一名资深抖音小店运营，负责判断中差评是否值得申诉举报。
+const LLM_SYS = (opts) => `你是一名资深抖音小店运营，负责判断中差评是否值得申诉举报。
 
 【举报机会只有一次，必须严谨：宁可交人工，也不要瞎报】
 
@@ -429,7 +429,7 @@ async function llmClassifyReview(rank, content, chat, hasImg, opts){
       const r=await fetch(cfg.base_url+'/chat/completions',{ method:'POST', signal:ctrl.signal,
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfg.key},
         body: JSON.stringify({ model:cfg.model, max_tokens:2500,
-          messages:[{role:'system',content:LLM_SYS(kinds,opts)},{role:'user',content:'星级：'+(rank||'中评')+'\n评价内容：'+(String(content||'').trim()||'（空）')+'\n飞鸽聊天记录：'+(chat&&chat.length?chat.join(' | ').slice(0,800):'（买家全程没有任何发言）')+'\n买家是否发过图片/视频：'+(hasImg?'是':'否')}] }) });
+          messages:[{role:'system',content:LLM_SYS(opts)},{role:'user',content:'星级：'+(rank||'中评')+'\n评价内容：'+(String(content||'').trim()||'（空）')+'\n飞鸽聊天记录：'+(chat&&chat.length?chat.join(' | ').slice(0,800):'（买家全程没有任何发言）')+'\n买家是否发过图片/视频：'+(hasImg?'是':'否')}] }) });
       clearTimeout(timer);
       const j=await r.json();
       let txt=((j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||'').trim();
