@@ -775,7 +775,7 @@ function createAppeal({store, jobs, app}){
           try{ let pa=JSON.parse(await runPage(rA,pagePreAudit,{order:c.order_id,scene:code.scene,sub:code.sub,desc:revDesc})||'{}');
             if(pa && (pa.matched===false || pa.level==='low') && c.kind==='review'){
               const m=/建议选择：(.+)/.exec(String(pa.reason||''));
-              const sug=m&&SUBS0.find(x=>x.name===m[1]&&x.code!==code.sub);
+              const sug=m&&SUBS.find(x=>x.name===m[1]&&x.code!==code.sub);
               if(sug){
                 const pa2=JSON.parse(await runPage(rA,pagePreAudit,{order:c.order_id,scene:'report_type_unusual_comment',sub:sug.code,desc:revDesc})||'{}');
                 if(pa2 && (pa2.level!=='low' || pa2.matched!==false)){ code={scene:'report_type_unusual_comment',sub:sug.code,label:sug.name}; gate.preAudit=pa2; gate.reasonSwitched=sug.name; }
