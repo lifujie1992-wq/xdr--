@@ -361,8 +361,8 @@ function drawQueue(){
     const pa=x.preAudit?('<span class="tag" style="background:'+(x.preAudit.level==='low'?'#fdeceb;color:#c0392b':'#e9f7f0;color:#1f7a55')+'">预审:'+(x.preAudit.level||'?')+'</span>'+(x.preAudit.rateReason?'<span class="hint"> '+esc(String(x.preAudit.rateReason).slice(0,60))+'</span>':'')):'';
     const sel='<select id="qsub_'+x.order_id+'" style="max-width:260px">'+QREASONS.map(r=>'<option value="'+r[0]+'"'+(r[0]===x.sub?' selected':'')+'>'+esc(r[1])+'</option>').join('')+'</select>';
     const act = x.status==='待核对'
-      ? '<button class="primary" onclick="queueAct(\''+x.order_id+'\',\'confirm\')">✅ 确认提交</button> <button onclick="queueAct(\''+x.order_id+'\',\'reject\')">🚫 不举报</button>'
-      : (x.status==='已确认' ? '<button onclick="queueAct(\''+x.order_id+'\',\'reset\')">↩ 撤回确认</button>' : '');
+      ? '<button class="primary qa" data-oid="'+x.order_id+'" data-act="confirm">✅ 确认提交</button> <button class="qa" data-oid="'+x.order_id+'" data-act="reject">🚫 不举报</button>'
+      : (x.status==='已确认' ? '<button class="qa" data-oid="'+x.order_id+'" data-act="reset">↩ 撤回确认</button>' : '');
     return '<div class="pair"><div class="hint"><b>'+esc(x.shop||'')+'</b> · <span class="mono">'+esc(x.order_id)+'</span> · '+esc(x.rank||'')+' · '+esc(x.date||'')+' · '+act+'</div>'
       +'<div style="margin:6px 0">'+rec+pa+' <span class="hint">评价:'+esc(x.content||'')+'</span></div>'
       +(x.llmWhy?'<div class="hint">AI:'+esc(String(x.llmWhy).slice(0,90))+'</div>':'')
@@ -370,6 +370,7 @@ function drawQueue(){
       +'<textarea id="qta_'+x.order_id+'" rows="2" style="width:100%;margin:6px 0;font:inherit">'+esc(x.desc||'')+'</textarea>'
       +'<div>'+sel+'</div></div>';
   }).join('');
+  $('queuewrap').querySelectorAll('button.qa').forEach(b=>b.onclick=()=>queueAct(b.dataset.oid,b.dataset.act));
 }
 async function queueAct(oid,action){
   const body={order_id:oid,action:action};
