@@ -109,6 +109,7 @@ h2{font-size:14px;margin:22px 0 10px}
     <button data-tab="ops" class="on">运营</button>
     <button data-tab="boss">老板</button>
     <button data-tab="review">复盘</button>
+    <button data-tab="queue">核对</button>
     <button data-tab="list">工单</button>
   </div>
   <div class="tools"><span id="gen" class="hint"></span><a class="btn" href="/export.csv" download>导出 CSV</a><button class="primary" id="refresh">刷新</button></div>
@@ -117,6 +118,17 @@ h2{font-size:14px;margin:22px 0 10px}
   <div id="ops"></div>
   <div id="boss" class="hide"></div>
   <div id="review" class="hide"></div>
+  <div id="queue" class="hide">
+    <div class="fbar">
+      <div class="chips" id="qchips"></div>
+      <div class="frow">
+        <select id="qshop" title="店铺"></select>
+        <input id="qq" placeholder="🔍 搜索订单号 / 评价内容" style="flex:1;min-width:180px">
+      </div>
+    </div>
+    <div id="queuewrap"></div>
+    <div id="qhint" class="hint" style="margin-top:10px">人工核对：修改描述/理由后点「确认提交」，下一轮自动申诉时提交。确认前不会上报平台。</div>
+  </div>
   <div id="list" class="hide">
     <div class="fbar">
       <div class="chips" id="chips"></div>
@@ -152,7 +164,7 @@ function auditState(oid){const v=RESULTS&&RESULTS[oid];if(!v)return null;const a
 function kindBd(k){return '<span class="kindbd '+(k==='品退'?'kd-q':'kd-r')+'">'+esc(k||'—')+'</span>'}
 function badge(s){const M={'已举报':'st-doing','举报成功':'st-ok','举报失败':'st-no','不可举报':'st-no','需转人工':'st-human','未处理':'st-todo'};const c=M[s]||'st-human';return '<span class="st '+c+'">'+esc(s||'—')+'</span>'}
 function auditCell(x){const tip=esc((x.auditMsg||'').replace(/\s+/g,' ').slice(0,200));if(!/^(已举报|举报成功|举报失败)$/.test(x.status||''))return '<td></td>';if(x.auditStatus===3)return '<td class="rej" title="'+tip+'">❌ 平台拒绝：'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0])+'</td>';if(x.auditStatus===6)return '<td class="okc">✅ 审核通过</td>';if(x.auditStatus==null)return '<td class="wait">平台记录待同步</td>';return '<td class="wait">审核中</td>'}
-function drawTabs(){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===TAB));['ops','boss','review','list'].forEach(t=>$(t).classList.toggle('hide',t!==TAB))}
+function drawTabs(){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===TAB));['ops','boss','review','queue','list'].forEach(t=>$(t).classList.toggle('hide',t!==TAB))}
 function drawOps(){
   const o=STATS.ops;
   $('ops').innerHTML=kindCards(STATS.byKind||{})
@@ -317,8 +329,59 @@ function shopTrends(b){
     }).join('');
 }
 function trendTable(map){const ks=Object.keys(map).sort();if(!ks.length)return '<div class="empty">暂无</div>';return '<table><thead><tr><th>日期</th><th>提交</th><th>通过</th><th>驳回</th></tr></thead><tbody>'+ks.map(k=>'<tr><td>'+k+'</td><td>'+map[k].sub+'</td><td class="okc">'+map[k].pass+'</td><td class="rej">'+map[k].reject+'</td></tr>').join('')+'</tbody></table>'}
-function draw(){drawTabs();if(!STATS)return;$('gen').textContent='更新于 '+(STATS.generated_at?new Date(STATS.generated_at).toLocaleString('zh-CN'):'');if(TAB==='ops')drawOps();else if(TAB==='boss')drawBoss();else if(TAB==='review')drawReview();else drawList()}
-function load(){Promise.all([fetch('/data').then(r=>r.json()),fetch('/stats').then(r=>r.json())]).then(([d,s])=>{DATA=d;STATS=s;draw()}).catch(()=>{})}
+function draw(){drawTabs();if(!STATS)return;$('gen').textContent='更新于 '+(STATS.generated_at?new Date(STATS.generated_at).toLocaleString('zh-CN'):'');if(TAB==='ops')drawOps();else if(TAB==='boss')drawBoss();else if(TAB==='review')drawReview();else if(TAB==='queue')drawQueue();else drawList()}
+const QREASONS=[['report_reason_evaluate_product_other_shop','评价内容非交易商品或内容无意义'],['report_reason_fake_negative_comment','评价等级为差评内容为好评'],['report_reason_wrong_size','消费者买错型号'],['report_reason_low_politics_guns','评价内容中包含辱骂或不当词汇'],['report_reason_evaluate_advertise','评价内容包含广告信息'],['report_reason_before_signing_evaluate','订单签收前评价商品质量问题'],['report_reason_negative_comment_compensation','利用中差评骗赔'],['report_reason_business_evil_compete','同行恶意竞争'],['report_reason_platform_voucher','平台发券导致的降价差评']];
+const QST=['待核对','已确认','已提交','不举报','已失效'];
+let QF={status:'待核对',shop:'',q:''}, QDATA={items:[]};
+function qFiltered(){
+  return QDATA.items.filter(x=>{
+    if(QF.status && x.status!==QF.status) return false;
+    if(QF.shop && (x.shop||'')!==QF.shop) return false;
+    if(QF.q){ const h=((x.shop||'')+' '+(x.order_id||'')+' '+(x.content||'')).toLowerCase(); if(h.indexOf(QF.q)<0) return false; }
+    return true;
+  });
+}
+function drawQueue(){
+  if(document.activeElement && $('queue').contains(document.activeElement) && /TEXTAREA|INPUT|SELECT/.test(document.activeElement.tagName)) return; // 正在编辑时不重绘
+  const all=QDATA.items||[]; const cnt={}; for(const s of ['待核对','已确认','已提交','不举报','已失效']) cnt[s]=all.filter(x=>x.status===s).length;
+  const el=$('qchips');
+  el.innerHTML=['待核对','已确认','已提交','不举报','已失效'].map(k=>'<button class="chip'+(QF.status===k?' on':'')+'" data-st="'+k+'">'+k+'<i>'+(cnt[k]||0)+'</i></button>').join('');
+  el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ QF.status=b.dataset.st; drawQueue(); });
+  const shops=[...new Set(all.map(x=>x.shop).filter(Boolean))];
+  const qs=$('qshop');
+  if(!qs.options.length || qs.dataset.n!=String(shops.length)){
+    qs.dataset.n=String(shops.length);
+    qs.innerHTML='<option value="">全部店铺</option>'+shops.map(s=>'<option'+(QF.shop===s?' selected':'')+'>'+esc(s)+'</option>').join('');
+    qs.onchange=()=>{ QF.shop=qs.value; drawQueue(); };
+  }
+  const rows=qFiltered().sort((a,b)=>(b.filledAt||'').localeCompare(a.filledAt||''));
+  if(!rows.length){ $('queuewrap').innerHTML='<div class="empty">没有'+esc(QF.status||'')+'的记录。</div>'; return; }
+  $('queuewrap').innerHTML=rows.map(x=>{
+    const rec=(x.recommend&&x.recommend.is_match)?('<span class="tag">平台推荐:'+esc(x.recommend.sub_scene_type_name||'')+' · 置信度'+esc(x.recommend.confidence)+'</span>'):'<span class="tag">平台无推荐</span>';
+    const pa=x.preAudit?('<span class="tag" style="background:'+(x.preAudit.level==='low'?'#fdeceb;color:#c0392b':'#e9f7f0;color:#1f7a55')+'">预审:'+(x.preAudit.level||'?')+'</span>'+(x.preAudit.rateReason?'<span class="hint"> '+esc(String(x.preAudit.rateReason).slice(0,60))+'</span>':'')):'';
+    const sel='<select id="qsub_'+x.order_id+'" style="max-width:260px">'+QREASONS.map(r=>'<option value="'+r[0]+'"'+(r[0]===x.sub?' selected':'')+'>'+esc(r[1])+'</option>').join('')+'</select>';
+    const act = x.status==='待核对'
+      ? '<button class="primary" onclick="queueAct(\''+x.order_id+'\',\'confirm\')">✅ 确认提交</button> <button onclick="queueAct(\''+x.order_id+'\',\'reject\')">🚫 不举报</button>'
+      : (x.status==='已确认' ? '<button onclick="queueAct(\''+x.order_id+'\',\'reset\')">↩ 撤回确认</button>' : '');
+    return '<div class="pair"><div class="hint"><b>'+esc(x.shop||'')+'</b> · <span class="mono">'+esc(x.order_id)+'</span> · '+esc(x.rank||'')+' · '+esc(x.date||'')+' · '+act+'</div>'
+      +'<div style="margin:6px 0">'+rec+pa+' <span class="hint">评价:'+esc(x.content||'')+'</span></div>'
+      +(x.llmWhy?'<div class="hint">AI:'+esc(String(x.llmWhy).slice(0,90))+'</div>':'')
+      +(x.goneReason?'<div class="hint">失效原因:'+esc(x.goneReason)+'</div>':'')
+      +'<textarea id="qta_'+x.order_id+'" rows="2" style="width:100%;margin:6px 0;font:inherit">'+esc(x.desc||'')+'</textarea>'
+      +'<div>'+sel+'</div></div>';
+  }).join('');
+}
+async function queueAct(oid,action){
+  const body={order_id:oid,action:action};
+  const ta=$('qta_'+oid), sel=$('qsub_'+oid);
+  if(ta) body.desc=ta.value;
+  if(sel) body.sub=sel.value;
+  if(sel){ const m=QREASONS.find(r=>r[0]===sel.value); if(m) body.label=m[1]; }
+  try{ await fetch('/queue/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }catch(e){}
+  await loadQueueData(); drawQueue();
+}
+async function loadQueueData(){ try{ QDATA=await fetch('/queue').then(r=>r.json()); }catch(e){} }
+function load(){Promise.all([fetch('/data').then(r=>r.json()),fetch('/stats').then(r=>r.json()),loadQueueData()]).then(([d,s])=>{DATA=d;STATS=s;draw()}).catch(()=>{})}
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{TAB=b.dataset.tab;draw()});
 function applyRange(){
   const rg=$('frange').value; $('fcustom').classList.toggle('hide', rg!=='custom');
@@ -334,6 +397,7 @@ function bindFilters(){
   $('frange').onchange=()=>{ applyRange(); };
   $('fd1').onchange=$('fd2').onchange=()=>{ F.from=$('fd1').value; F.to=$('fd2').value; PAGE=1; drawList(); };
   $('fq').oninput=()=>{ F.q=$('fq').value.trim().toLowerCase(); PAGE=1; drawList(); };
+  $('qq').oninput=()=>{ QF.q=$('qq').value.trim().toLowerCase(); drawQueue(); };
   $('fpage').onchange=()=>{ PAGE=1; drawList(); };
   $('clearf').onclick=()=>{ F={status:'',kind:'',shop:'',q:'',from:'',to:''}; $('fq').value=''; $('frange').value=''; $('fcustom').classList.add('hide'); PAGE=1; drawList(); };
 }
@@ -503,7 +567,33 @@ function createAppealWeb({app, appeal}){
     if(server) return Promise.resolve(url());
     const handler=(req,res)=>{
       try{
+        if(req.method==='POST' && req.url==='/queue/update'){
+          let raw=''; req.on('data',c=>{ raw+=c; if(raw.length>1e5) req.destroy(); });
+          req.on('end',()=>{
+            try{
+              const b=JSON.parse(raw||'{}');
+              if(!b.order_id) throw Error('order_id required');
+              const dir=reportsDir(); const f=path.join(dir,'review-queue.json');
+              let q={items:{}}; try{ q=JSON.parse(fs.readFileSync(f,'utf8')); if(!q.items) q.items={}; }catch(e){}
+              const it=q.items[b.order_id];
+              if(!it) throw Error('队列中无此单');
+              if(b.action==='confirm'){ it.status='confirmed'; if(b.desc) it.desc=String(b.desc).slice(0,200); if(b.sub) it.sub=String(b.sub); if(b.label) it.label=String(b.label); it.confirmedAt=new Date().toISOString(); }
+              else if(b.action==='reject'){ it.status='rejected'; it.rejectedAt=new Date().toISOString(); }
+              else if(b.action==='reset'){ it.status='pending'; }
+              else if(b.desc||b.sub){ if(b.desc) it.desc=String(b.desc).slice(0,200); if(b.sub){ it.sub=String(b.sub); it.label=b.label?String(b.label):it.label; } }
+              fs.writeFileSync(f,JSON.stringify(q,null,2)); fs.chmodSync(f,0o600);
+              res.setHeader('Content-Type','application/json;charset=utf-8'); res.end(JSON.stringify({ok:true,status:it.status}));
+            }catch(e){ res.statusCode=400; res.setHeader('Content-Type','application/json;charset=utf-8'); res.end(JSON.stringify({ok:false,error:String(e&&e.message||e)})); }
+          });
+          return;
+        }
         if(req.url==='/'||req.url.startsWith('/?')){ res.setHeader('Content-Type','text/html;charset=utf-8'); res.end(HTML); return }
+        if(req.url.startsWith('/queue')){ 
+          const f=path.join(reportsDir(),'review-queue.json');
+          let q={items:{}}; try{ q=JSON.parse(fs.readFileSync(f,'utf8')); }catch(e){}
+          const items=Object.values(q.items||{});
+          res.setHeader('Content-Type','application/json;charset=utf-8'); res.end(JSON.stringify({items, count:items.length})); return;
+        }
         if(req.url.startsWith('/data')){ res.setHeader('Content-Type','application/json;charset=utf-8'); res.end(JSON.stringify(buildData())); return }
         if(req.url.startsWith('/stats')){ res.setHeader('Content-Type','application/json;charset=utf-8'); res.end(JSON.stringify(buildStats())); return }
         if(req.url.startsWith('/export')){ res.setHeader('Content-Type','text/csv;charset=utf-8'); res.setHeader('Content-Disposition','attachment; filename="appeal-worklist.csv"'); res.end(buildCsv()); return }

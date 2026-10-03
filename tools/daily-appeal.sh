@@ -22,8 +22,8 @@ case "$port" in ''|*[!0-9]*) say "端口无效"; exit 1;; esac
 case "$token" in *[!0-9a-f]*|'') say "token 无效"; exit 1;; esac
 
 payload="${SHOPDESK_APPEAL_PAYLOAD:-}"
-# 先只跑试点店（香朵儿官方旗舰店），通过率验证后再全量
-if [ -z "$payload" ]; then payload='{"method":"auto_appeal_start","args":{"kinds":["quality","reviews"],"submit":true,"shopIds":["ba958668-8bfc-4fc3-923f-0ab06dea66f2"]}}'; fi
+# 品退照旧自动提交；中差评进「人工核对」队列（网页-核对页确认后，下一轮自动提交）
+if [ -z "$payload" ]; then payload='{"method":"auto_appeal_start","args":{"kinds":["quality","reviews"],"submit":true,"reviewQueue":true}}'; fi
 resp=$(printf 'header = "Authorization: Bearer %s"\n' "$token" | \
   /usr/bin/curl --config - --silent --show-error --max-time 900 --noproxy '*' \
   --header 'Content-Type: application/json' --header 'X-ShopDesk-Client: cron' \
