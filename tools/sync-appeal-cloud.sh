@@ -56,4 +56,7 @@ $SCP "$RD/review-queue.json" $SERVER:/srv/appeal-workbench/data/review-queue.jso
 # 评价明细库（BI 用：按商品/店铺/供应商/发货时效切差评率）
 DETAIL="$APP/business-data/reviews-detail-latest.json"
 if [ -s "$DETAIL" ]; then $SCP "$DETAIL" $SERVER:/srv/appeal-workbench/data/reviews-detail-latest.json >/dev/null && log "评价明细已推送"; fi
+# 飞鸽聊天明细（买家+客服，含客服名）
+CHAT="$APP/appeal-reports/chat-detail-latest.json"
+if [ -s "$CHAT" ]; then $SCP "$CHAT" $SERVER:/srv/appeal-workbench/data/chat-detail-latest.json >/dev/null && log "聊天明细已推送"; fi
 log "推送完成：data/stats/queue/评价明细 → 云端"

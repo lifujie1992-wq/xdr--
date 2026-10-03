@@ -53,7 +53,19 @@ async function pageFlyge(){
       buyerImgs += imgs + vids + files;
     }catch(e){}
   }
-  return JSON.stringify({ready:true,total:wraps.length,buyer_count:buyer.length,buyer_imgs:buyerImgs,buyer_msgs:msgs.map(m=>m.txt).slice(0,50)});
+  // 全量对话（含客服名）：r=b买家/s客服/sys系统，n=发送者名，t=内容
+  const transcript=[];
+  for(const w of wraps){
+    let name=''; try{ const nds=[...w.querySelectorAll('div')].filter(d=>!d.children.length&&d.textContent.trim()&&d.textContent.trim().length<30&&!/^[0-9]+月[0-9]+日/.test(d.textContent.trim())); if(nds.length) name=nds[0].textContent.trim(); }catch(e){}
+    const isBuyer=!!w.querySelector('.messageNotMe');
+    const isSys=/系统/.test(name);
+    const txt=(w.innerText||'').replace(/\s+/g,' ').trim();
+    if(!txt) continue;
+    transcript.push({r:isSys?'sys':(isBuyer?'b':'s'), n:name, t:txt.slice(0,200)});
+    if(transcript.length>=200) break;
+  }
+  const agents=[]; for(const m of transcript){ if(m.r==='s'&&m.n&&agents.indexOf(m.n)<0) agents.push(m.n); }
+  return JSON.stringify({ready:true,total:wraps.length,buyer_count:buyer.length,buyer_imgs:buyerImgs,buyer_msgs:msgs.map(m=>m.txt).slice(0,50),transcript:transcript,agents:agents});
 }
 
 async function pageFinalize(cfg){
@@ -590,6 +602,8 @@ function skipFile(){ return path.join(baseDir(),'appeal-reports','skipped.json')
 function loadSkips(){ try{ return JSON.parse(fs.readFileSync(skipFile(),'utf8'))||{}; }catch(e){ return {}; } }
 // 人工核对队列：中差评填充内容后待人工确认，确认后下一轮自动提交
 function queueFile(){ return path.join(baseDir(),'appeal-reports','review-queue.json'); }
+function chatFile(){ return path.join(baseDir(),'appeal-reports','chat-detail-latest.json'); }
+function saveChat(rec){ try{ let m={}; try{ m=JSON.parse(fs.readFileSync(chatFile(),'utf8')); }catch(e){} m[String(rec.order_id)]=rec; fs.writeFileSync(chatFile(), JSON.stringify(m)); fs.chmodSync(chatFile(),0o600); }catch(e){} }
 function loadQueue(){ try{ const q=JSON.parse(fs.readFileSync(queueFile(),'utf8')); return (q&&q.items)?q:{items:{}}; }catch(e){ return {items:{}}; } }
 function saveQueue(q){ try{ fs.writeFileSync(queueFile(), JSON.stringify(q,null,2)); fs.chmodSync(queueFile(),0o600); }catch(e){} }
 function queueMarkGone(order,why){ const q=loadQueue(); if(q.items[order]&&q.items[order].status!=='submitted'){ q.items[order].status='gone'; q.items[order].goneReason=why; saveQueue(q); } }
@@ -706,6 +720,10 @@ function createAppeal({store, jobs, app}){
         let f=null;
         for(let i=0;i<12;i++){ await sleep(1200); try{ f=JSON.parse(await runPage(rB,pageFlyge)||'{}'); }catch(e){ f=null; } if(f&&f.ready) break; }
         if(!f||!f.ready){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'飞鸽未加载'}); continue; }
+        // 飞鸽聊天明细落盘（买家+客服全量，含客服名），随每日任务上云
+        try{ saveChat({order_id:c.order_id, shop:shopName, kind:c.kind, date:c.date||'',
+              msg_total:f.total||0, buyer_count:f.buyer_count||0, buyer_imgs:f.buyer_imgs||0,
+              agents:f.agents||[], transcript:f.transcript||[], captured_at:new Date().toISOString()}); }catch(e){}
         let net=null; try{ net=JSON.parse(await runPage(rB,pageReadNet)||'{}'); }catch(e){}
         // 说明：有沟通不等于不能举报；只有「聊天里有图片 + 能证明商品质量问题」才交人工
 
