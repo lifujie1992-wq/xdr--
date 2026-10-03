@@ -143,8 +143,16 @@ const NET_HOOK_SRC = `(function(){
   try{
     window.__net = { http: [], ws: [] };
     const of = window.fetch;
-    window.fetch = function(u,o){ try{ window.__net.http.push(String(u).split('?')[0]); }catch(e){} return of.apply(this,arguments) };
-    const oo = XMLHttpRequest.prototype.open; XMLHttpRequest.prototype.open = function(m,u){ try{ window.__net.http.push(String(u).split('?')[0]); }catch(e){} return oo.apply(this,arguments) };
+    window.fetch = function(u,o){ try{
+      window.__net.http.push(String(u).split('?')[0]);
+      if(String(u).indexOf('get_history_msg')>=0){
+        const rf = of.apply(this,arguments);
+        try{ rf.then(r=>{ try{ r.clone().json().then(j=>{ (window.__hist=window.__hist||[]).push(j); }).catch(()=>{}); }catch(e){} }).catch(()=>{}); }catch(e){}
+        return rf;
+      }
+    }catch(e){} return of.apply(this,arguments) };
+    const oo = XMLHttpRequest.prototype.open; XMLHttpRequest.prototype.open = function(m,u){ try{ window.__net.http.push(String(u).split('?')[0]); this.__histMatch=String(u).indexOf('get_history_msg')>=0; }catch(e){} return of.apply(this,arguments) };
+    const ox = XMLHttpRequest.prototype.send; XMLHttpRequest.prototype.send = function(b){ try{ if(this.__histMatch){ this.addEventListener('load',()=>{ try{ (window.__hist=window.__hist||[]).push(JSON.parse(this.responseText)); }catch(e){} }); } }catch(e){} return ox.apply(this,arguments) };
     const OW = window.WebSocket;
     if(OW){
       const NW = function(u,p){ try{ window.__net.ws.push({url:String(u)}); }catch(e){} const w = new OW(u,p);
@@ -164,6 +172,7 @@ async function installNetHook(wc){
   }catch(e){ return false }
 }
 async function pageReadNet(){ try{ return JSON.stringify(window.__net||{}) }catch(e){ return '{}' } }
+async function pageReadHist(){ try{ return JSON.stringify(window.__hist||[]) }catch(e){ return '[]' } }
 
 async function pageHookFetch(){ try{ window.__cap=[]; const of=window.fetch; window.fetch=function(u,o){ try{ const m=((o&&o.method)||'GET').toUpperCase(); if(m==='POST') window.__cap.push({u:String(u).split('?')[0],b:String((o&&o.body)||'').slice(0,2000)}); }catch(e){} return of.apply(this,arguments) }; const oo=XMLHttpRequest.prototype.open,ox=XMLHttpRequest.prototype.send; XMLHttpRequest.prototype.open=function(m,u){ this.__u=u; this.__m=m; return oo.apply(this,arguments) }; XMLHttpRequest.prototype.send=function(b){ try{ if(String(this.__m).toUpperCase()==='POST') window.__cap.push({u:String(this.__u).split('?')[0],b:String(b||'').slice(0,2000)}); }catch(e){} return ox.apply(this,arguments) }; return true }catch(e){ return false } }
 async function pageReadCap(){ try{ return JSON.stringify(window.__cap||[]) }catch(e){ return '[]' } }
@@ -613,7 +622,11 @@ function saveSkip(order,reason,shop){
   try{ const m=loadSkips(); if(!m[order]){ m[order]={reason:reason,shop:shop||'',at:new Date().toISOString()}; fs.writeFileSync(skipFile(),JSON.stringify(m,null,2)); fs.chmodSync(skipFile(),0o600); } }catch(e){}
 }
 function runPage(wc, fn, ...args){
-  return wc.executeJavaScript('('+fn.toString()+')('+args.map(a=>JSON.stringify(a)).join(',')+')', true);
+  // 带超时：页面挂死时跳过，避免整场跑批卡住
+  return Promise.race([
+    wc.executeJavaScript('('+fn.toString()+')('+args.map(a=>JSON.stringify(a)).join(',')+')', true),
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error('页面执行超时')),20000))
+  ]);
 }
 
 function createAppeal({store, jobs, app}){
@@ -723,9 +736,12 @@ function createAppeal({store, jobs, app}){
         for(let i=0;i<12;i++){ await sleep(1200); try{ f=JSON.parse(await runPage(rB,pageFlyge)||'{}'); }catch(e){ f=null; } if(f&&f.ready) break; }
         if(!f||!f.ready){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'飞鸽未加载'}); continue; }
         // 飞鸽聊天明细落盘（买家+客服全量，含客服名），随每日任务上云
+        let hist=[]; try{ hist=JSON.parse(await runPage(rB,pageReadHist)||'[]'); }catch(e){}
         try{ saveChat({order_id:c.order_id, shop:shopName, kind:c.kind, date:c.date||'',
               msg_total:f.total||0, buyer_count:f.buyer_count||0, buyer_imgs:f.buyer_imgs||0,
-              agents:f.agents||[], transcript:f.transcript||[], captured_at:new Date().toISOString()}); }catch(e){}
+              agents:f.agents||[], transcript:f.transcript||[],
+              api_hist:hist.length?JSON.stringify(hist).slice(0,60000):'',
+              captured_at:new Date().toISOString()}); }catch(e){}
         let net=null; try{ net=JSON.parse(await runPage(rB,pageReadNet)||'{}'); }catch(e){}
         // 说明：有沟通不等于不能举报；只有「聊天里有图片 + 能证明商品质量问题」才交人工
 
