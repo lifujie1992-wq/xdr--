@@ -592,7 +592,8 @@ function createAppealWeb({app, appeal}){
         if(req.url.startsWith('/queue')){ 
           const f=path.join(reportsDir(),'review-queue.json');
           let q={items:{}}; try{ q=JSON.parse(fs.readFileSync(f,'utf8')); }catch(e){}
-          const items=Object.values(q.items||{});
+          const SMAP={pending:'待核对',confirmed:'已确认',submitted:'已提交',rejected:'不举报',gone:'已失效'};
+          const items=Object.values(q.items||{}).map(x=>Object.assign({},x,{status:SMAP[x.status]||x.status||'待核对'}));
           res.setHeader('Content-Type','application/json;charset=utf-8'); res.end(JSON.stringify({items, count:items.length})); return;
         }
         if(req.url.startsWith('/data')){ res.setHeader('Content-Type','application/json;charset=utf-8'); res.end(JSON.stringify(buildData())); return }
