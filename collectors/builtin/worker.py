@@ -91,7 +91,61 @@ def main(request):
         with ThreadPoolExecutor(max_workers=3) as pool:results=collect(pool,fetch_negative_reviews,request['shops'])
         http=time.perf_counter()-started
         worklist,count=finalize_worklist(results,request['dataDir'],'negative_reviews')
+        # 额外落一份「全量中差评」（含被筛掉的：有实质内容/有图/情绪化）
+        try:
+            stamp=datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')
+            allrows=[]
+            for r in results:
+                for x in (r.get('all_reviews') or []):
+                    allrows.append(dict(x, shop=r.get('name') or '', shop_id=r.get('shop_id') or ''))
+            f=Path(request['dataDir'])/('reviews-all-%s.json'%stamp)
+            f.write_text(json.dumps(allrows,ensure_ascii=False,indent=1),encoding='utf-8')
+        except Exception:
+            pass
         return {'captured_at':datetime.now(timezone.utc).isoformat(),'total_candidates':count,'worklist_file':worklist,'success':sum(r['status']=='ok' for r in results),'shop_count':len(results),'concurrency':3,'python_http_seconds':round(http,3),'results':results}
+    if request.get('action')=='review_details':
+        from quality import fetch_review_details
+        from concurrent.futures import ThreadPoolExecutor
+        from datetime import datetime,timezone
+        import time
+        started=time.perf_counter()
+        with ThreadPoolExecutor(max_workers=3) as pool:results=collect(pool,fetch_review_details,request['shops'])
+        http=time.perf_counter()-started
+        stamp=datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')
+        allrows=[]
+        for r in results:
+            for x in (r.get('details') or []):
+                allrows.append(dict(x, shop=r.get('name') or '', shop_id=r.get('shop_id') or ''))
+        folder=Path(request['dataDir']);folder.mkdir(parents=True,mode=0o700,exist_ok=True)
+        f=folder/('reviews-detail-%s.json'%stamp)
+        f.write_text(json.dumps(allrows,ensure_ascii=False,indent=1),encoding='utf-8')
+        os.chmod(f,0o600)
+        # latest 合并（按 review_id upsert，供 BI/云端直接取）
+        latest=folder/('reviews-detail-latest.json')
+        merged={}
+        try:
+            old=json.loads(latest.read_text(encoding='utf-8'))
+            for x in old: merged[str(x.get('review_id'))]=x
+        except Exception: pass
+        for x in allrows: merged[str(x.get('review_id'))]=x
+        latest.write_text(json.dumps(list(merged.values()),ensure_ascii=False),encoding='utf-8')
+        os.chmod(latest,0o600)
+        return {'captured_at':datetime.now(timezone.utc).isoformat(),'total_details':len(allrows),'merged_total':len(merged),
+                'detail_file':str(f),'latest_file':str(latest),
+                'success':sum(r['status']=='ok' for r in results),'shop_count':len(results),
+                'python_http_seconds':round(http,3),
+                'results':[{k:r.get(k) for k in ('status','name','shop_id','fetched','seconds','error')} for r in results]}
+    if request.get('action')=='backfill_products':
+        from backfill import backfill_products
+        from concurrent.futures import ThreadPoolExecutor
+        from datetime import datetime,timezone
+        import time
+        started=time.perf_counter()
+        with ThreadPoolExecutor(max_workers=3) as pool:results=collect(pool,lambda item:backfill_products(item,item.get('_targets') or {}),request['shops'])
+        http=time.perf_counter()-started
+        total=sum(r.get('matched_count') or 0 for r in results)
+        missing=sum(len(r.get('missing') or []) for r in results)
+        return {'captured_at':datetime.now(timezone.utc).isoformat(),'total_matched':total,'total_missing':missing,'success':sum(r['status']=='ok' for r in results),'shop_count':len(results),'concurrency':3,'python_http_seconds':round(http,3),'results':results}
     if request.get('action')=='record':
         # Only normalized metric data, never the fetch request or raw responses.
         folder=Path(request['dataDir']);folder.mkdir(parents=True,mode=0o700,exist_ok=True)

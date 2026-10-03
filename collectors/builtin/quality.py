@@ -98,10 +98,10 @@ def is_empty_or_emotion(text):
 
 
 # ===== 商品名/商品编码提取（接口字段不固定，做通用扫描）=====
-_NAME_KEYS = ('product_name','goods_name','item_name','sku_name','goods_title','product_title','product_title_name')
-_ID_KEYS   = ('product_id','goods_id','item_id','product_code','goods_code','outer_product_id','product_outer_id')
+_NAME_KEYS = ('product_name', 'goods_name', 'item_name', 'sku_name', 'goods_title', 'product_title', 'product_title_name', 'name')
+_ID_KEYS = ('product_id', 'goods_id', 'item_id', 'product_code', 'goods_code', 'outer_product_id', 'product_outer_id')
 
-_BAD_NAME = ('申请','等待','处理','物流','签收','发货','退款','售后','已','待')
+_BAD_NAME = ('申请', '等待', '处理', '物流', '签收', '发货', '退款', '售后', '已', '待')
 
 def _ok_name(v):
     t = str(v or '').strip()
@@ -345,6 +345,7 @@ def fetch_quality_returns(item, span=None, max_pages=20, page_size=50, max_detai
 def fetch_negative_reviews(item, max_pages=20, page_size=50):
     """扫描中差评（1~3 星）：近30天内、评价无实质描述、且无图片 / 无视频。"""
     started = time.perf_counter(); s = _session(item, COMMENT_REFERER)
+    _all_rows = []
     candidates = []; negative_total = 0; all_daily = {}
     cutoff = int(time.time()) - 30 * 86400
     try:
@@ -379,12 +380,25 @@ def fetch_negative_reviews(item, max_pages=20, page_size=50):
                     content = (c.get('content') or '').strip()
                     photos = c.get('photos') or []
                     videos = c.get('videos') or []
+                    pname, pid = _pick_product(c)
+                    # 全量留存（供人工/AI 复盘，不影响候选筛选）
+                    _all_rows.append({
+                        'order_id': c.get('order_id') or c.get('shop_order_id') or '',
+                        'comment_id': str(c.get('comment_id') or ''),
+                        'rank': c.get('rank'),
+                        'level': ((c.get('tags') or {}).get('rank_info') or {}).get('name') or '',
+                        'content': content,
+                        'has_media': bool(photos or videos),
+                        'comment_date': _ymd(c.get('comment_time') or 0),
+                        'product_name': pname,
+                        'product_id': pid,
+                    })
                     if not is_empty_or_emotion(content) or photos or videos:
                         continue
                     candidates.append({
                         'order_id': c.get('order_id') or c.get('shop_order_id') or '',
-                        'product_name': (_pick_product(c)[0]),
-                        'product_id': (_pick_product(c)[1]),
+                        'product_name': pname,
+                        'product_id': pid,
                         'comment_id': str(c.get('id') or ''),
                         'rank': c.get('rank'),
                         'level': ((c.get('tags') or {}).get('rank_info') or {}).get('name') or '',
@@ -403,6 +417,7 @@ def fetch_negative_reviews(item, max_pages=20, page_size=50):
                 if rows and min((c.get('comment_time') or 0) for c in rows) < cutoff:
                     break   # 列表按时间倒序，已到30天前就不再看
         return {'shop_id': item['id'], 'name': item['name'], 'status': 'ok',
+                'all_reviews': _all_rows,
                 'negative_count': negative_total, 'candidate_count': len(candidates),
                 'all_daily': all_daily,
                 'candidates': candidates,
@@ -415,3 +430,73 @@ def fetch_negative_reviews(item, max_pages=20, page_size=50):
                 'http_seconds': round(time.perf_counter() - started, 3)}
     finally:
         s.cookies.clear(); s.close(); item['cookies'].clear()
+
+
+def fetch_review_details(item, max_pages=40, page_size=50):
+    """评价明细全量采集（近30天，含好评/中评/差评）：评价ID、星级、订单号、商品/SKU、
+    正文、追评、图片/视频、商家回复、平台标签。供 BI 关联订单/物流/供应商分析差评率。"""
+    started = time.perf_counter(); s = _session(item, COMMENT_REFERER)
+    cutoff = int(time.time()) - 30 * 86400
+    try:
+        if item.get('since'):
+            cutoff = max(cutoff, int(int(item['since']) / 1000))
+    except Exception:
+        pass
+    rows = []; fetched = 0; reached_old = False
+    try:
+        for page in range(0, max_pages):
+            r = s.get(COMMENT_API, params={'rank': 0, 'page': page, 'pageSize': page_size,
+                                           'status_filter': 0, 'content_search': 0, 'reply_search': 0,
+                                           'appeal_search': 0, 'bad_comment_class_tag_key': '',
+                                           'count_ecology_score_filter': 0, 'random': 0.5,
+                                           'appid': 1}, timeout=(5, 25), allow_redirects=False)
+            if r.status_code != 200:
+                raise ValueError('评价 HTTP 请求失败')
+            payload = r.json(); check_platform_login(payload)
+            if payload.get('code') != 0 or payload.get('st', 0) != 0:
+                raise ValueError('平台拒绝评价请求，请稍后重试')
+            batch = payload.get('data') or []
+            if not isinstance(batch, list) or not batch:
+                break
+            fetched += len(batch)
+            for c in batch:
+                ct = int(c.get('comment_time') or 0)
+                if ct < cutoff:
+                    reached_old = True
+                    continue
+                tags = c.get('tags') or {}
+                appends = c.get('appends') or []
+                photos = c.get('photos') or []
+                videos = c.get('videos') or []
+                rows.append({
+                    'review_id': str(c.get('id') or ''),
+                    'comment_time': ct, 'date': _ymd(ct),
+                    'rank': c.get('rank'), 'rank_shop': c.get('rank_shop'),
+                    'rank_logistic': c.get('rank_logistic'), 'rank_product': c.get('rank_product'),
+                    'rank_name': ((tags.get('rank_info') or {}).get('name') or ''),
+                    'order_id': str(c.get('order_id') or ''), 'shop_order_id': str(c.get('shop_order_id') or ''),
+                    'product_id': str(c.get('product_id') or ''), 'sku_id': str(c.get('sku_id') or ''),
+                    'sku': c.get('sku') or '',
+                    'content': c.get('content') or '', 'orig_content': c.get('orig_content') or '',
+                    'is_append': c.get('is_append') or 0, 'parent_id': str(c.get('parent_id') or '0'),
+                    'append_count': len(appends),
+                    'appends': [{'content': (a.get('content') or ''), 'comment_time': a.get('comment_time')} for a in appends],
+                    'photo_count': len(photos), 'video_count': len(videos),
+                    'shop_reply': c.get('shop_reply') or '', 'is_shop_reply': c.get('is_shop_reply') or 0,
+                    'reply_time': c.get('reply_time'),
+                    'negative_tags': tags.get('negative_tags') or [],
+                    'bad_info': tags.get('bad_info'),
+                    'user_name': c.get('user_name') or '', 'likes': c.get('likes') or 0,
+                    'status': c.get('status'), 'status_info': c.get('status_info'),
+                    'store_id': str(c.get('store_id') or ''), 'store_name': c.get('store_name') or '',
+                    'is_abnormal_order': c.get('is_abnormal_order'),
+                })
+            oldest = min(int(c.get('comment_time') or 0) for c in batch)
+            if oldest < cutoff or len(batch) < page_size:
+                break
+        return {'status': 'ok', 'name': item.get('name') or '', 'shop_id': item.get('shop_id') or '',
+                'details': rows, 'fetched': fetched, 'reached_30d': reached_old or True,
+                'seconds': round(time.perf_counter() - started, 2)}
+    except Exception as e:
+        return {'status': 'error', 'name': item.get('name') or '', 'shop_id': item.get('shop_id') or '',
+                'error': str(e), 'details': rows, 'seconds': round(time.perf_counter() - started, 2)}
