@@ -9,6 +9,8 @@ mkdir -p "$REPORT_DIR"
 say(){ echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
 say "==== 每日自动申诉开始 ===="
+# 同步云端：拉回人工确认（核对网页上确认的）并合并进本地队列
+bash "$HOME/shopdesk-workbench-src/tools/sync-appeal-cloud.sh" >> "$LOG" 2>&1 || say "云端同步失败（忽略）"
 if ! pgrep -f "店铺工作台.app/Contents/MacOS/店铺工作台" >/dev/null 2>&1; then
   say "工作台未运行，启动中…"
   open "$APP" 2>>"$LOG"
@@ -38,5 +40,7 @@ resp2=$(printf 'header = "Authorization: Bearer %s"\n' "$token" | \
   "http://127.0.0.1:$port/call" 2>>"$LOG")
 say "同步审核结果: $resp2"
 say "（后台运行，结果见 appeal-reports/*.json；网页端 http://127.0.0.1 可看状态）"
+# 推送最新数据上云（核对网页立即可见）
+bash "$HOME/shopdesk-workbench-src/tools/sync-appeal-cloud.sh" >> "$LOG" 2>&1 || say "云端推送失败（忽略）"
 say "==== 触发完成 ===="
 exit 0
