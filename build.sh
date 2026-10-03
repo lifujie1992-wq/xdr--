@@ -56,8 +56,10 @@ echo "④b 同步采集模块到 App（App 从 Resources/collectors/ 加载，�
 if [ -d collectors ]; then
   DEST="$APP/Contents/Resources/collectors"
   mkdir -p "$DEST"
-  # collectors/ 下若直接是 builtin 内容，则装到 builtin/
-  if [ -f collectors/worker.py ]; then
+  # 仓库布局 collectors/builtin/*；兼容旧布局（collectors/ 下直接是模块文件）
+  if [ -d collectors/builtin ]; then
+    rsync -a --delete collectors/ "$DEST/" 2>/dev/null || cp -R collectors/* "$DEST/"
+  elif [ -f collectors/worker.py ]; then
     mkdir -p "$DEST/builtin"; rsync -a --delete collectors/ "$DEST/builtin/" 2>/dev/null || cp -R collectors/* "$DEST/builtin/"
   else
     rsync -a --delete collectors/ "$DEST/" 2>/dev/null || cp -R collectors/* "$DEST/"

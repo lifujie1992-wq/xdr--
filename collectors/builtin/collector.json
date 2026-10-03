@@ -1,6 +1,6 @@
 {
  "id": "builtin",
- "version": "1.0.3",
+ "version": "1.0.4",
  "title": "工作台内置采集",
  "entry": "worker.py",
  "files": [

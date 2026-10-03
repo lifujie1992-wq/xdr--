@@ -53,4 +53,7 @@ curl -s --max-time 10 http://127.0.0.1:8899/stats > /tmp/appeal-stats.json 2>/de
 $SCP /tmp/appeal-data.json   $SERVER:/srv/appeal-workbench/data/data.json   >/dev/null
 $SCP /tmp/appeal-stats.json  $SERVER:/srv/appeal-workbench/data/stats.json  >/dev/null
 $SCP "$RD/review-queue.json" $SERVER:/srv/appeal-workbench/data/review-queue.json >/dev/null
-log "推送完成：data/stats/queue → 云端"
+# 评价明细库（BI 用：按商品/店铺/供应商/发货时效切差评率）
+DETAIL="$APP/business-data/reviews-detail-latest.json"
+if [ -s "$DETAIL" ]; then $SCP "$DETAIL" $SERVER:/srv/appeal-workbench/data/reviews-detail-latest.json >/dev/null && log "评价明细已推送"; fi
+log "推送完成：data/stats/queue/评价明细 → 云端"
