@@ -228,6 +228,25 @@ async function pageRecommend(cfg){
     return JSON.stringify({is_match:!!d.is_match,confidence:d.confidence,scene_type:d.scene_type,sub_scene_type:d.sub_scene_type,sub_scene_type_name:d.sub_scene_type_name});
   }catch(e){ return JSON.stringify({error:String(e&&e.message||e)}) }
 }
+async function pageUploadImage(cfg){
+  try{
+    const bin=atob(String(cfg.b64||''));
+    const arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+    const fd=new FormData(); fd.append('image_file',new File([arr],cfg.name||'evidence.png',{type:'image/png'}));
+    const r=await fetch('/common/index/uploadImg',{method:'POST',credentials:'include',body:fd});
+    const j=await r.json();
+    return JSON.stringify({code:j.code,url:(j.data&&j.data.url)||'',key:(j.data&&j.data.img_key)||''});
+  }catch(e){ return JSON.stringify({error:String(e&&e.message||e)}) }
+}
+async function pageProofTemplate(cfg){
+  try{
+    const r=await fetch('/shopuser/report/proof_templates_strict_audit',{method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({scene_type:'report_type_unusual_comment',sub_scene_type:String(cfg.sub),bus_type:2})});
+    const j=await r.json(); const t=((j.data||{}).templates||[])[0]||{};
+    return JSON.stringify({tpl_id:t.tpl_id||'',title:t.title||''});
+  }catch(e){ return JSON.stringify({error:String(e&&e.message||e)}) }
+}
 async function pagePreAudit(cfg){
   try{
     const c=(window.SlardarConfigContext||{}); const u=(window.userInfo||{});
@@ -236,7 +255,7 @@ async function pagePreAudit(cfg){
     if(!sid) return JSON.stringify({error:'无shop_id'});
     const r=await fetch('/shopuser/accuse/report_pre_audit',{method:'POST',credentials:'include',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({scene_type:String(cfg.scene),sub_scene_type:String(cfg.sub),report_desc:String(cfg.desc||''),shop_id:sid,report_object_type:'comment',object_id_list:[String(cfg.order)],proofs:{images:[],videos:[]}})});
+      body: JSON.stringify({scene_type:String(cfg.scene),sub_scene_type:String(cfg.sub),report_desc:String(cfg.desc||''),shop_id:sid,report_object_type:'comment',object_id_list:[String(cfg.order)],proofs:(cfg.proofs&&cfg.proofs.images&&cfg.proofs.images.length)?{images:cfg.proofs.images,videos:[]}:{images:[],videos:[]}})});
     const j=await r.json();
     const d=j.data||{};
     const rate=d.report_success_rate||{};
@@ -248,7 +267,7 @@ async function pageReviewApply(cfg){
   try{
     const body = { scene_type: cfg.scene, sub_scene_type: cfg.sub, report_desc: cfg.desc||'',
       is_chat_granted: true, sku_order_id: String(cfg.order), comment_id: String(cfg.cid||''),
-      proof_infos: cfg.proofs||[], come_from: '' };
+      proof_infos: cfg.proofInfos||[], come_from: '' };
     const r = await fetch('/shopuser/accuse/apply', {method:'POST', credentials:'include',
       headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     const t = await r.text();
@@ -763,6 +782,15 @@ function createAppeal({store, jobs, app}){
         if(!submit){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'演练模式(未提交)',detail:{content:String(revContent||c.content||'').slice(0,60),label:(code&&code.label)||'',llm:revLLM,shots:shots.length,status:status}}); continue; }
         const revDesc=sanitizeDesc(c.kind==='review'?buildReviewDesc({rank:revRank,content:revContent,msgCount:(f&&f.buyer_count)||0,imgCount:(f&&f.buyer_imgs)||0}):buildQualityDesc({reason:c.reason,desc:c.description,msgCount:(f&&f.buyer_count)||0}));
         const gate={};
+        // ④a- 上传飞鸽聊天截图作为凭证（预审与提交都用）
+        let proofs={images:[],videos:[]};
+        try{
+          const shotFile=shots&&shots.length?shots[0]:null;
+          if(shotFile&&fs.existsSync(shotFile)){
+            const up=JSON.parse(await runPage(rA,pageUploadImage,{b64:fs.readFileSync(shotFile).toString('base64'),name:isReview?'chat.png':'order.png'})||'{}');
+            if(up&&up.url){ proofs={images:[up.url],videos:[]}; gate.proofUrl=up.url; }
+          }
+        }catch(e){ gate.proofErr=String(e&&e.message||e).slice(0,80); }
         if(c.kind==='review'){
           // ④a 平台推荐（一键采纳）：按描述让平台推荐场景/理由，置信度≥0.8 采用
           try{ const rec=JSON.parse(await runPage(rA,pageRecommend,{desc:revDesc})||'{}');
@@ -771,13 +799,13 @@ function createAppeal({store, jobs, app}){
               code={scene:rec.scene_type,sub:rec.sub_scene_type,label:rec.sub_scene_type_name||''}; gate.adopted=rec.sub_scene_type;
             }
           }catch(e){ gate.recommendErr=String(e&&e.message||e); }
-          // ④b 平台预审：理由不匹配 → 按平台建议换理由并复审一次；通过率 low → 非队列模式不报（保住一次性机会）
-          try{ let pa=JSON.parse(await runPage(rA,pagePreAudit,{order:c.order_id,scene:code.scene,sub:code.sub,desc:revDesc})||'{}');
+          // ④b 平台预审（带截图凭证）：理由不匹配 → 按平台建议换理由并复审一次；通过率 low → 非队列模式不报（保住一次性机会）
+          try{ let pa=JSON.parse(await runPage(rA,pagePreAudit,{order:c.order_id,scene:code.scene,sub:code.sub,desc:revDesc,proofs:proofs})||'{}');
             if(pa && (pa.matched===false || pa.level==='low') && c.kind==='review'){
               const m=/建议选择：(.+)/.exec(String(pa.reason||''));
               const sug=m&&SUBS.find(x=>x.name===m[1]&&x.code!==code.sub);
               if(sug){
-                const pa2=JSON.parse(await runPage(rA,pagePreAudit,{order:c.order_id,scene:'report_type_unusual_comment',sub:sug.code,desc:revDesc})||'{}');
+                const pa2=JSON.parse(await runPage(rA,pagePreAudit,{order:c.order_id,scene:'report_type_unusual_comment',sub:sug.code,desc:revDesc,proofs:proofs})||'{}');
                 if(pa2 && (pa2.level!=='low' || pa2.matched!==false)){ code={scene:'report_type_unusual_comment',sub:sug.code,label:sug.name}; gate.preAudit=pa2; gate.reasonSwitched=sug.name; }
                 else if(pa2 && pa2.level!=='high'){ gate.preAudit2=pa2; }
               }
@@ -798,7 +826,7 @@ function createAppeal({store, jobs, app}){
             order_id:c.order_id, shop:shopName, rank:revRank||c.level||'',
             content:String(revContent||c.content||'').slice(0,80), date:c.date||'',
             desc:revDesc, scene:code.scene, sub:code.sub, label:(code&&code.label)||'',
-            recommend:gate.recommend||null, preAudit:gate.preAudit||null,
+            recommend:gate.recommend||null, preAudit:gate.preAudit||null, proofUrl:gate.proofUrl||null,
             llmWhy:(revLLM&&revLLM.why)||'',
             status:(qit&&qit.status==='rejected')?'rejected':'pending',
             filledAt:new Date().toISOString()
@@ -812,8 +840,17 @@ function createAppeal({store, jobs, app}){
           if(qit.desc) useDesc=sanitizeDesc(qit.desc);
           if(qit.scene) useScene=qit.scene;
           if(qit.sub){ useSub=qit.sub; useLabel=qit.label||useLabel; }
+          if(qit.proofUrl) proofs={images:[qit.proofUrl],videos:[]};
         }
-        let ap={}; try{ ap=JSON.parse(await runPage(rA, (c.kind==='review'?pageReviewApply:pageApplyNow), {order:c.order_id,scene:useScene,sub:useSub,cid:cid,desc:useDesc,proofs:[]})||'{}'); }catch(e){ ap={error:String(e&&e.message||e)}; }
+        // 中差评：凭证按平台模板包装（tpl_id+title+imageUrls）
+        let proofInfos=[];
+        if(c.kind==='review'&&proofs.images.length){
+          try{
+            const tpl=JSON.parse(await runPage(rA,pageProofTemplate,{sub:useSub})||'{}');
+            if(tpl&&tpl.tpl_id) proofInfos=[{tpl_id:tpl.tpl_id,title:tpl.title||'',imageUrls:proofs.images}];
+          }catch(e){}
+        }
+        let ap={}; try{ ap=JSON.parse(await runPage(rA, (c.kind==='review'?pageReviewApply:pageApplyNow), {order:c.order_id,scene:useScene,sub:useSub,cid:cid,desc:useDesc,proofInfos:proofInfos})||'{}'); }catch(e){ ap={error:String(e&&e.message||e)}; }
         let resp={}; try{ resp=JSON.parse(ap.resp||'{}'); }catch(e){ resp={}; }
         const ok = !!(resp && resp.code===0 && resp.data && resp.data.id);   // 必须拿到举报ID才算成功
         let r={ submitted:!!ok, verified:!!ok, applyResp:resp, reqBody:ap.reqBody, shots:shots.length, status:status, reasonLabel:useLabel, llm:revLLM, gate:gate };
