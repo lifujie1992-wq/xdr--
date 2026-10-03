@@ -128,6 +128,9 @@ def main(request):
             for x in old: merged[str(x.get('review_id'))]=x
         except Exception: pass
         for x in allrows: merged[str(x.get('review_id'))]=x
+        # 30 天滚动窗口：过老的行清掉，保持增量库恒定范围
+        cutoff=int(time.time())-30*86400
+        merged={k:v for k,v in merged.items() if int(v.get('comment_time') or 0)>=cutoff}
         latest.write_text(json.dumps(list(merged.values()),ensure_ascii=False),encoding='utf-8')
         os.chmod(latest,0o600)
         return {'captured_at':datetime.now(timezone.utc).isoformat(),'total_details':len(allrows),'merged_total':len(merged),
