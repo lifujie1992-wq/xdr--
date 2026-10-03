@@ -216,7 +216,9 @@ function pageShopId(){
 }
 async function pageRecommend(cfg){
   try{
-    const sid=JSON.parse(pageShopId()).shop_id;
+    const c=(window.SlardarConfigContext||{}); const u=(window.userInfo||{});
+    const sidRaw=String(c.shop_id||c.shopId||u.shop_id||u.id||'');
+    const sid=/^\d+$/.test(sidRaw)?sidRaw:'';
     if(!sid) return JSON.stringify({error:'无shop_id'});
     const r=await fetch('/shopuser/accuse/report_scene_recommend',{method:'POST',credentials:'include',
       headers:{'Content-Type':'application/json'},
@@ -228,7 +230,9 @@ async function pageRecommend(cfg){
 }
 async function pagePreAudit(cfg){
   try{
-    const sid=JSON.parse(pageShopId()).shop_id;
+    const c=(window.SlardarConfigContext||{}); const u=(window.userInfo||{});
+    const sidRaw=String(c.shop_id||c.shopId||u.shop_id||u.id||'');
+    const sid=/^\d+$/.test(sidRaw)?sidRaw:'';
     if(!sid) return JSON.stringify({error:'无shop_id'});
     const r=await fetch('/shopuser/accuse/report_pre_audit',{method:'POST',credentials:'include',
       headers:{'Content-Type':'application/json'},
