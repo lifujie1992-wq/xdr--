@@ -465,19 +465,19 @@ ${(opts||[]).map((o,i)=>`${i+1}. ${o.code} — ${o.name}${o.desc?('（'+String(o
 
 - verdict="report"：确实满足上面某个举报原因 → 给出 reason 代码
 - 【最高优先级规则】判定要看**有没有图片/视频证据**：
-  · 买家**没有**提供任何图片/视频证据 → 无论评价说什么（质量差、不值、色差、皱），都属**主观感受** → verdict="report"，reason=原因2
+  · 买家**没有**提供任何图片/视频证据 → 无论评价说什么（质量差、不值、色差、皱），都属**主观感受** → verdict="report"；理由按下述选：评价文字是**负向抱怨**（质量差、不值、色差、与描述不符等）→ reason=原因1（评价内容非交易商品或内容无意义，属无实质意义的笼统评价）；评价文字**本身是夸赞/正向**（好看、满意、不错却给了差评/中评）→ reason=原因2（评价等级为差评内容为好评）；评价文字在**骂人/广告/同行**等 → 对应原因
   · 买家**发来了图片/视频且能证明商品质量问题** → verdict="quality_claim"（交人工）
 - verdict="real_problem"：买家指出了本店商品或本店服务的**具体缺陷**，且**有图片/视频证据**（质量差、色差、起球、缩水、开线、有异味、实物与描述不符等）→ 不该举报，交人工处理
 - verdict="quality_claim"：**买家在飞鸽聊天中提出了明确的商品质量问题**（例如说质量差、有瑕疵、破损、开线、掉色，或发来问题图片视频），需要卖家准备质量证明材料应对 → 交人工
 - verdict="uncertain"：信息极少且聊天记录也看不出任何指向时才用（很少发生）→ 交人工
 
 判断要点：
-- 【最高优先】买家**没有提供任何图片/视频证据** → 无论评价或聊天说了什么（质量差、不值、色差等），一律属**主观感受** → verdict="report"，reason=原因2，文案写明“未提供有效证明”
+- 【最高优先】买家**没有提供任何图片/视频证据** → 无论评价或聊天说了什么（质量差、不值、色差等），一律属**主观感受** → verdict="report"；文字是负向抱怨用**原因1**（无意义评价），文字是正向却给了差评/中评才用**原因2**；文案写明“未提供有效证明”
 - 买家**只是无效沟通**（问发货时间、催物流、问尺码、闲聊等），**没有涉及商品质量问题** → 不影响举报，按评价内容正常判断（该报就报）
 - 只有买家**在聊天中发来了问题图片、且图片能证明商品质量有问题** → quality_claim
 - 买家在聊天里只用文字说了质量问题（没有图片）→ real_problem
 - 只要买家**在评价里指出了本店商品/服务的具体缺陷** → real_problem
-- 只要抱怨的是**跟本店商品/服务无关的第三方**、**纯主观审美偏好**、或**笼统的中差评情绪** → report（原因 2）
+- 只要抱怨的是**跟本店商品/服务无关的第三方**、**纯主观审美偏好**、或**笼统的中差评情绪** → report（原因 1：评价内容非交易商品或内容无意义）
 - 分不清是"主观感受"还是"具体缺陷" → uncertain（交人工）
 
 严格只输出 JSON，不要任何解释：
@@ -771,10 +771,19 @@ function createAppeal({store, jobs, app}){
               code={scene:rec.scene_type,sub:rec.sub_scene_type,label:rec.sub_scene_type_name||''}; gate.adopted=rec.sub_scene_type;
             }
           }catch(e){ gate.recommendErr=String(e&&e.message||e); }
-          // ④b 平台预审：通过率 low → 非队列模式不报（保住一次性机会），转人工；队列模式仅标记，由人工决断
-          try{ const pa=JSON.parse(await runPage(rA,pagePreAudit,{order:c.order_id,scene:code.scene,sub:code.sub,desc:revDesc})||'{}');
-            gate.preAudit=pa;
-            if(pa && pa.level==='low' && !(reviewQueue && c.kind==='review')){
+          // ④b 平台预审：理由不匹配 → 按平台建议换理由并复审一次；通过率 low → 非队列模式不报（保住一次性机会）
+          try{ let pa=JSON.parse(await runPage(rA,pagePreAudit,{order:c.order_id,scene:code.scene,sub:code.sub,desc:revDesc})||'{}');
+            if(pa && (pa.matched===false || pa.level==='low') && c.kind==='review'){
+              const m=/建议选择：(.+)/.exec(String(pa.reason||''));
+              const sug=m&&SUBS0.find(x=>x.name===m[1]&&x.code!==code.sub);
+              if(sug){
+                const pa2=JSON.parse(await runPage(rA,pagePreAudit,{order:c.order_id,scene:'report_type_unusual_comment',sub:sug.code,desc:revDesc})||'{}');
+                if(pa2 && (pa2.level!=='low' || pa2.matched!==false)){ code={scene:'report_type_unusual_comment',sub:sug.code,label:sug.name}; gate.preAudit=pa2; gate.reasonSwitched=sug.name; }
+                else if(pa2 && pa2.level!=='high'){ gate.preAudit2=pa2; }
+              }
+            }
+            gate.preAudit=gate.preAudit||pa;
+            if(gate.preAudit && gate.preAudit.level==='low' && !(reviewQueue && c.kind==='review')){
               saveSkip(c.order_id,'需人工介入·预审低通过率',shopName);
               log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·预审低通过率',detail:{gate:pa,llm:revLLM,desc:revDesc.slice(0,80)}});
               continue;
