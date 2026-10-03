@@ -56,15 +56,17 @@ async function pageFlyge(){
   // 全量对话（含客服名）：r=b买家/s客服/sys系统，n=发送者名，t=内容
   const transcript=[];
   for(const w of wraps){
-    let name=''; try{ const nds=[...w.querySelectorAll('div')].filter(d=>!d.children.length&&d.textContent.trim()&&d.textContent.trim().length<30&&!/^[0-9]+月[0-9]+日/.test(d.textContent.trim())); if(nds.length) name=nds[0].textContent.trim(); }catch(e){}
+    let name=''; try{ const TM=/^(昨天|今天|前天|[0-9]{1,2}:[0-9]{2}|[0-9]+月[0-9]+日|[0-9]+小时)/; const nds=[...w.querySelectorAll('div')].filter(d=>!d.children.length&&d.textContent.trim()&&d.textContent.trim().length<30&&!TM.test(d.textContent.trim())); if(nds.length) name=nds[0].textContent.trim(); }catch(e){}
     const isBuyer=!!w.querySelector('.messageNotMe');
     const isSys=/系统/.test(name);
     const txt=(w.innerText||'').replace(/\s+/g,' ').trim();
     if(!txt) continue;
-    transcript.push({r:isSys?'sys':(isBuyer?'b':'s'), n:name, t:txt.slice(0,200)});
+    let role=isSys?'sys':(isBuyer?'b':'s');
+    if(role==='s'&&!name&&/消费者正在查看|确认订单|已发货|已签收|订单已|物流|通知|退款已成功|系统关闭会话/.test(txt.slice(0,80))) role='sys';
+    transcript.push({r:role, n:name, t:txt.slice(0,200)});
     if(transcript.length>=200) break;
   }
-  const agents=[]; for(const m of transcript){ if(m.r==='s'&&m.n&&agents.indexOf(m.n)<0) agents.push(m.n); }
+  const agents=[]; for(const m of transcript){ if(m.r==='s'&&m.n&&m.n.length<=12&&!/[0-9¥]|优惠券|退款|运费|通知|小时/.test(m.n)&&agents.indexOf(m.n)<0) agents.push(m.n); }
   return JSON.stringify({ready:true,total:wraps.length,buyer_count:buyer.length,buyer_imgs:buyerImgs,buyer_msgs:msgs.map(m=>m.txt).slice(0,50),transcript:transcript,agents:agents});
 }
 
