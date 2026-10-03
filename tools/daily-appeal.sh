@@ -40,6 +40,27 @@ resp2=$(printf 'header = "Authorization: Bearer %s"\n' "$token" | \
   "http://127.0.0.1:$port/call" 2>>"$LOG")
 say "同步审核结果: $resp2"
 say "（后台运行，结果见 appeal-reports/*.json；网页端 http://127.0.0.1 可看状态）"
+# 评价明细采集（近30天全量，含好评/中评/差评），完成随数据一起上云
+say "触发评价明细采集"
+rjob=$(printf 'header = "Authorization: Bearer %s"\n' "$token" | \
+  /usr/bin/curl --config - --silent --max-time 60 --noproxy '*' \
+  --header 'Content-Type: application/json' \
+  --data-binary '{"method":"start_collector","args":{"key":"builtin:review_details"}}' \
+  "http://127.0.0.1:$port/call" 2>>"$LOG" | /usr/bin/python3 -c "import json,sys;print(json.load(sys.stdin).get('result',{}).get('id',''))" 2>>"$LOG" || true)
+if [ -n "$rjob" ]; then
+  for i in $(seq 1 60); do
+    sleep 15
+    st=$(printf 'header = "Authorization: Bearer %s"\n' "$token" | \
+      /usr/bin/curl --config - --silent --max-time 60 --noproxy '*' \
+      --header 'Content-Type: application/json' \
+      --data-binary "{\"method\":\"get_collector_job\",\"args\":{\"id\":\"$rjob\"}}" \
+      "http://127.0.0.1:$port/call" 2>>"$LOG" | /usr/bin/python3 -c "import json,sys;j=json.load(sys.stdin).get('result',{});print(j.get('status',''))" 2>>"$LOG" || true)
+    [ "$st" = "done" ] || [ "$st" = "error" ] || [ "$st" = "failed" ] && { say "评价明细采集：$st"; break; }
+  done
+else
+  say "评价明细采集触发失败"
+fi
+
 # 推送最新数据上云（核对网页立即可见）
 bash "$HOME/shopdesk-workbench-src/tools/sync-appeal-cloud.sh" >> "$LOG" 2>&1 || say "云端推送失败（忽略）"
 say "==== 触发完成 ===="
