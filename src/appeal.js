@@ -208,6 +208,38 @@ async function pageReviewCheck(cfg){
     return JSON.stringify({found:true, can_select:!!c.can_select, status:String(st).replace(/<%[^%]*%>/g,''), hover:hover, comment_id:String(c.comment_id||''), rank:c.rank||'', content:String(c.content||'').slice(0,60), product_name:c.product_name||'', product_id:c.product_id?String(c.product_id):''});
   }catch(e){ return JSON.stringify({error:String(e&&e.message||e)}) }
 }
+function pageShopId(){
+  try{ const c=window.SlardarConfigContext||{}; const u=window.userInfo||{};
+    const sid=String(c.shop_id||c.shopId||u.shop_id||u.id||'');
+    return JSON.stringify({shop_id:/^\d+$/.test(sid)?sid:''});
+  }catch(e){ return JSON.stringify({shop_id:''}) }
+}
+async function pageRecommend(cfg){
+  try{
+    const sid=JSON.parse(pageShopId()).shop_id;
+    if(!sid) return JSON.stringify({error:'无shop_id'});
+    const r=await fetch('/shopuser/accuse/report_scene_recommend',{method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({shop_id:sid,appeal_content:String(cfg.desc||'')})});
+    const j=await r.json();
+    const d=j.data||{};
+    return JSON.stringify({is_match:!!d.is_match,confidence:d.confidence,scene_type:d.scene_type,sub_scene_type:d.sub_scene_type,sub_scene_type_name:d.sub_scene_type_name});
+  }catch(e){ return JSON.stringify({error:String(e&&e.message||e)}) }
+}
+async function pagePreAudit(cfg){
+  try{
+    const sid=JSON.parse(pageShopId()).shop_id;
+    if(!sid) return JSON.stringify({error:'无shop_id'});
+    const r=await fetch('/shopuser/accuse/report_pre_audit',{method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({scene_type:String(cfg.scene),sub_scene_type:String(cfg.sub),report_desc:String(cfg.desc||''),shop_id:sid,report_object_type:'comment',object_id_list:[String(cfg.order)],proofs:{images:[],videos:[]}})});
+    const j=await r.json();
+    const d=j.data||{};
+    const rate=d.report_success_rate||{};
+    const rc=d.reason_check_result||{};
+    return JSON.stringify({level:rate.level||'',rateReason:rate.reason||'',matched:rc.is_matched,matchedName:rc.matched_sub_scene_name||'',reason:rc.reason||''});
+  }catch(e){ return JSON.stringify({error:String(e&&e.message||e)}) }
+}
 async function pageReviewApply(cfg){
   try{
     const body = { scene_type: cfg.scene, sub_scene_type: cfg.sub, report_desc: cfg.desc||'',
@@ -720,10 +752,30 @@ function createAppeal({store, jobs, app}){
 
         // ④ 接口提交（不再点页面）
         if(!submit){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'演练模式(未提交)',detail:{content:String(revContent||c.content||'').slice(0,60),label:(code&&code.label)||'',llm:revLLM,shots:shots.length,status:status}}); continue; }
-        let ap={}; try{ ap=JSON.parse(await runPage(rA, (c.kind==='review'?pageReviewApply:pageApplyNow), {order:c.order_id,scene:code.scene,sub:code.sub,cid:cid,desc:sanitizeDesc(c.kind==='review'?buildReviewDesc({rank:revRank,content:revContent,msgCount:(f&&f.buyer_count)||0,imgCount:(f&&f.buyer_imgs)||0}):buildQualityDesc({reason:c.reason,desc:c.description,msgCount:(f&&f.buyer_count)||0})),proofs:[]})||'{}'); }catch(e){ ap={error:String(e&&e.message||e)}; }
+        const revDesc=sanitizeDesc(c.kind==='review'?buildReviewDesc({rank:revRank,content:revContent,msgCount:(f&&f.buyer_count)||0,imgCount:(f&&f.buyer_imgs)||0}):buildQualityDesc({reason:c.reason,desc:c.description,msgCount:(f&&f.buyer_count)||0}));
+        const gate={};
+        if(c.kind==='review'){
+          // ④a 平台推荐（一键采纳）：按描述让平台推荐场景/理由，置信度≥0.8 采用
+          try{ const rec=JSON.parse(await runPage(rA,pageRecommend,{desc:revDesc})||'{}');
+            gate.recommend=rec;
+            if(rec && rec.is_match && Number(rec.confidence)>=0.8 && rec.scene_type==='report_type_unusual_comment' && rec.sub_scene_type && rec.sub_scene_type!==code.sub){
+              code={scene:rec.scene_type,sub:rec.sub_scene_type,label:rec.sub_scene_type_name||''}; gate.adopted=rec.sub_scene_type;
+            }
+          }catch(e){ gate.recommendErr=String(e&&e.message||e); }
+          // ④b 平台预审：通过率 low → 不报（保住一次性机会），转人工
+          try{ const pa=JSON.parse(await runPage(rA,pagePreAudit,{order:c.order_id,scene:code.scene,sub:code.sub,desc:revDesc})||'{}');
+            gate.preAudit=pa;
+            if(pa && pa.level==='low'){
+              saveSkip(c.order_id,'需人工介入·预审低通过率',shopName);
+              log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·预审低通过率',detail:{gate:pa,llm:revLLM,desc:revDesc.slice(0,80)}});
+              continue;
+            }
+          }catch(e){ gate.preAuditErr=String(e&&e.message||e); }
+        }
+        let ap={}; try{ ap=JSON.parse(await runPage(rA, (c.kind==='review'?pageReviewApply:pageApplyNow), {order:c.order_id,scene:code.scene,sub:code.sub,cid:cid,desc:revDesc,proofs:[]})||'{}'); }catch(e){ ap={error:String(e&&e.message||e)}; }
         let resp={}; try{ resp=JSON.parse(ap.resp||'{}'); }catch(e){ resp={}; }
         const ok = !!(resp && resp.code===0 && resp.data && resp.data.id);   // 必须拿到举报ID才算成功
-        let r={ submitted:!!ok, verified:!!ok, applyResp:resp, reqBody:ap.reqBody, shots:shots.length, status:status, reasonLabel:(code&&code.label)||'', llm:revLLM };
+        let r={ submitted:!!ok, verified:!!ok, applyResp:resp, reqBody:ap.reqBody, shots:shots.length, status:status, reasonLabel:(code&&code.label)||'', llm:revLLM, gate:gate };
         if(!ok) r.reason = (resp&&(resp.msg||resp.message))||ap.error||'提交失败';
         if(!r.submitted && (r.skipped==='不可举报'||r.skipped==='无需举报')) saveSkip(c.order_id,r.skipped,shopName);
         if(!r.submitted && /^买家有沟通/.test(String(r.skipped||''))) saveSkip(c.order_id,'买家有沟通',shopName);
