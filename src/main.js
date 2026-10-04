@@ -45,7 +45,7 @@ function reloginShop(id){
 }
 async function flygeProbe(shopId,url,expression){
  const shop=store.get(shopId);const u=new URL(String(url));
- if(u.protocol!=='https:'||!['im.jinritemai.com','fxg.jinritemai.com'].includes(u.hostname))throw Error('仅支持抖店官方页面');
+ if(u.protocol!=='https:'||!['im.jinritemai.com','fxg.jinritemai.com','pigeon.jinritemai.com'].includes(u.hostname))throw Error('仅支持抖店官方页面');
  const ses=session.fromPartition('persist:shop-'+shopId);
  const w=new BrowserWindow({show:false,width:1120,height:820,webPreferences:{...secure,session:ses}});guard(w);
  const wc=w.webContents;let info={};

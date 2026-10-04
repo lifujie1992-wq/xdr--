@@ -490,7 +490,16 @@ function createAppealWeb({app, appeal}){
         // 平台有记录 → 覆盖为平台事实
         const av=results[r.order_id];
         let status='未举报';
-        if(av){ status=auditOf(r.order_id); tags.push(...auditTags(r.order_id)); if(!why) why=String(av.resultMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0]; }
+        if(av){
+          // 平台审核结果出来后：清掉预检/跳过阶段的旧标签和旧 why，以平台事实为准（标签清洗）
+          status=auditOf(r.order_id);
+          const PRECHECK=/^(不可举报|无需举报|已举报过|待重试|待提交\(演练\)|买家有沟通|买家发过图片|买家反馈真实问题|需卖家提供质量证明|需人工介入)$/;
+          for(let i=tags.length-1;i>=0;i--) if(PRECHECK.test(tags[i])) tags.splice(i,1);
+          tags.push(...auditTags(r.order_id));
+          const act=String(av.resultMsg||'');
+          const m=act.match(/平台动作:([^;]+)/);
+          why=(auditOf(r.order_id)==='举报失败')?('平台拒绝：'+act.replace(/^失败原因[:：]/,'').split(';平台建议')[0]):(m?m[1]:'已提交举报，平台已受理');
+        }
         if(e && e.result==='已提交' && !av) status='已举报';
         if(!av && !(e&&e.result==='已提交') && tags.some(t=>/^(需人工介入|需卖家提供质量证明|待重试)$/.test(t))) status='需转人工';
         if(status==='需转人工' && !tags.some(t=>t==='需转人工')) tags.unshift('需转人工');
