@@ -11,6 +11,18 @@ say(){ echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
 ERP="${XDR_ERP_BASE:-https://erp.xiangduoer.com}"
 CJ="/tmp/shopdesk-erp-cookies.txt"
+SSHKEY="$HOME/.ssh/xdr_mac"
+SRV="root@47.114.33.246:/srv/appeal-workbench/data"
+
+# ⑥ 先把最新 data/stats/queue 推上云（供云端页面查看；20MB 的评价/聊天明细留给每日任务）
+curl -s --max-time 10 --noproxy '*' http://127.0.0.1:8899/data  > /tmp/appeal-data.json  2>/dev/null
+curl -s --max-time 10 --noproxy '*' http://127.0.0.1:8899/stats > /tmp/appeal-stats.json 2>/dev/null
+if [ -s /tmp/appeal-data.json ]; then
+  scp -q -i "$SSHKEY" -o ConnectTimeout=12 /tmp/appeal-data.json "$SRV/data.json" 2>/dev/null \
+    && say "已推送 data.json（含场景/评价/操作内容）" || say "data 推送失败"
+  [ -s /tmp/appeal-stats.json ] && scp -q -i "$SSHKEY" -o ConnectTimeout=12 /tmp/appeal-stats.json "$SRV/stats.json" 2>/dev/null
+  [ -s "$RD/review-queue.json" ] && scp -q -i "$SSHKEY" -o ConnectTimeout=12 "$RD/review-queue.json" "$SRV/review-queue.json" 2>/dev/null
+fi
 
 # ① 登录 ERP 拿会话（账号密码放本地 600 文件，不进仓库）
 if [ ! -f "$CRED" ]; then say "缺少 $CRED（ERP 登录凭据），跳过"; exit 0; fi

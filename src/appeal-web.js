@@ -442,6 +442,22 @@ function createAppealWeb({app, appeal}){
     // 每单取“最新一条日志”，并记住是否曾经提交成功过
     const last={}, everSubmitted=new Set();
     for(const e of logs){ if(!e.order) continue; last[e.order]=e; if(e.result==='已提交') everSubmitted.add(e.order); }
+    // 每单最近一次「已提交」的日志：含举报原因(reasonLabel) + 实际提交的申诉说明(reqBody.report_desc)
+    const lastSub={};
+    for(const e of logs){ if(!e.order || e.result!=='已提交') continue; lastSub[e.order]=e; }
+    const REASON_LABEL={'report_reason_fake_negative_comment':'评价等级为差评内容为好评','report_reason_evaluate_product_other_shop':'评价内容非交易商品或内容无意义','report_reason_wrong_size':'消费者买错型号','report_reason_low_politics_guns':'评价内容中包含辱骂或不当词汇','report_reason_negative_comment_compensation':'利用中差评骗赔','report_reason_business_evil_compete':'同行恶意竞争'};
+    // 场景归类：方便按“哪种情况的申诉”分析
+    const scenarioOf=(kind,reportReason,aftersale)=>{
+      if(kind==='品退'){ const a=String(aftersale||'').replace(/（[^）]*）/g,'').trim(); return '品退·'+(a||'售后'); }
+      const R=String(reportReason||'');
+      if(/内容为好评/.test(R)) return '中差评·内容好评/星级中差评';
+      if(/非交易商品|无意义/.test(R)) return '中差评·评价无实义/情绪化';
+      if(/买错/.test(R)) return '中差评·买家买错';
+      if(/辱骂|不当/.test(R)) return '中差评·辱骂不当';
+      if(/骗赔/.test(R)) return '中差评·骗赔';
+      if(/恶意竞争/.test(R)) return '中差评·同行恶意';
+      return '中差评·其他';
+    };
 
     // 转人工的具体理由（来自最新日志）
     const humanWhy=(e)=>{
@@ -504,21 +520,32 @@ function createAppealWeb({app, appeal}){
         if(!av && !(e&&e.result==='已提交') && tags.some(t=>/^(需人工介入|需卖家提供质量证明|待重试)$/.test(t))) status='需转人工';
         if(status==='需转人工' && !tags.some(t=>t==='需转人工')) tags.unshift('需转人工');
         if(status==='需转人工') tags.unshift('需转人工');
+        const _sub=lastSub[r.order_id];
+        const _rb=(_sub&&_sub.detail&&_sub.detail.reqBody)||{};
+        const _reportReason=String((_sub&&_sub.detail&&_sub.detail.reasonLabel)||'')||REASON_LABEL[_rb.sub_scene_type]||'';
+        const _content=(label==='中差评')?String(r.content||r.reason||''):'';
+        const _aftersale=(label==='品退')?String(r.reason||r.description||''):'';
         items.push({kind:label,shop:r.shop||'',order_id:r.order_id||'',reason:r.reason||r.content||'',date:dd||'',
           desc:r.report_desc||'',status:status,why:why,tags:tags,submitted_at:(e&&e.at)||'',
           product_name:r.product_name||'',product_id:r.product_id?String(r.product_id):'',
           submitter:(everSubmitted.has(r.order_id))?'AI提交':'',
-          auditStatus:(av&&av.auditStatus!=null)?av.auditStatus:null, auditMsg:(av&&av.resultMsg)||''});
+          auditStatus:(av&&av.auditStatus!=null)?av.auditStatus:null, auditMsg:(av&&av.resultMsg)||'',
+          content:_content, aftersale:_aftersale, rank:String(r.rank||r.level||''),
+          report_reason:_reportReason, appeal_desc:String(_rb.report_desc||r.report_desc||''),
+          scenario:scenarioOf(label,_reportReason,_aftersale)});
       }
     }
     // ② 平台有记录、但不在清单里的单
     for(const [oid,v] of Object.entries(results)){
       if(seen.has(oid)) continue; seen.add(oid);
-      items.push({kind:(v.scene||'').indexOf('售后')>=0?'品退':'中差评',shop:v.shop||'',order_id:oid,reason:v.sub||'',
+      const _k=(v.scene||'').indexOf('售后')>=0?'品退':'中差评';
+      const _rr=REASON_LABEL[v.sub]||String(v.sub||'');
+      items.push({kind:_k,shop:v.shop||'',order_id:oid,reason:v.sub||'',
         date:(v.created||'').slice(0,10),desc:'',status:auditOf(oid),why:(auditOf(oid)==='举报失败')?('平台拒绝理由：'+String(v.resultMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0]):'已提交举报（平台审核中）',
         tags:auditTags(oid),submitted_at:v.created||'',submitter:'AI提交',
         product_name:'',product_id:'',
-        auditStatus:(v.auditStatus!=null?v.auditStatus:null),auditMsg:v.resultMsg||''});
+        auditStatus:(v.auditStatus!=null?v.auditStatus:null),auditMsg:v.resultMsg||'',
+        content:'',aftersale:'',rank:'',report_reason:_rr,appeal_desc:'',scenario:scenarioOf(_k,_rr,'')});
     }
     return {generated_at:new Date().toISOString(), _results:results, count:items.length,
       items};
