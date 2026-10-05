@@ -555,12 +555,12 @@ function createAppealWeb({app, appeal}){
     const subMap=new Map();
     for(const e of logs){ if(e.result!=='已提交'||!e.order) continue; if(!subMap.has(e.order)) subMap.set(e.order,e); }
     const today=new Date().toISOString().slice(0,10);
-    const rows=[...subMap.values()].map(e=>{ const a=results[e.order]||{}; return {
+    const rows=[...subMap.values()].map(e=>{ const a=results[e.order]||{}; const _rl=((e.detail&&e.detail.reasonLabel)||''); return {
       order_id:e.order, shop:e.shop||'', kind:e.kind==='review'?'中差评':'品退', at:e.at||'',
-      submitReason:e.submitReason||e.reason||'', buyerReason:e.buyer||'',
+      submitReason:e.submitReason||_rl||e.reason||'', buyerReason:e.buyer||'', submitter:'AI',
       auditStatus:(a.auditStatus!=null?a.auditStatus:null), auditMsg:a.resultMsg||'', auditTime:a.auditTime||'' }; });
-    // 平台有结果但我们没日志的（手动提交）
-    for(const [oid,a] of Object.entries(results)){ if(subMap.has(oid)) continue; rows.push({order_id:oid,shop:a.shop||'',kind:(a.scene||'').indexOf('售后')>=0?'品退':'中差评',at:(a.created||'').replace(/\//g,'-'),submitReason:a.sub||'',buyerReason:'',auditStatus:(a.auditStatus!=null?a.auditStatus:null),auditMsg:a.resultMsg||'',auditTime:a.auditTime||''}); }
+    // 平台有结果但我们没日志的（人工提交）
+    for(const [oid,a] of Object.entries(results)){ if(subMap.has(oid)) continue; rows.push({order_id:oid,shop:a.shop||'',kind:(a.scene||'').indexOf('售后')>=0?'品退':'中差评',at:(a.created||'').replace(/\//g,'-'),submitReason:a.sub||'',buyerReason:'',submitter:'人工',auditStatus:(a.auditStatus!=null?a.auditStatus:null),auditMsg:a.resultMsg||'',auditTime:a.auditTime||''}); }
     const pass=rows.filter(r=>r.auditStatus===6).length, reject=rows.filter(r=>r.auditStatus===3).length;
     const pending=rows.filter(r=>r.auditStatus==null||r.auditStatus===1).length;
     const byReason={},byShop={},rejTop={},trend={};
