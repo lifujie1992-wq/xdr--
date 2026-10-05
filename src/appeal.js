@@ -180,6 +180,26 @@ async function pageReadCap(){ try{ return JSON.stringify(window.__cap||[]) }catc
 const SCENE_CODES = {
   quality: { scene: 'report_type_unusual_after_sale', sub: 'report_reason_return_wrong_reason' }
 };
+// 自动提交策略：平台预审 high 直接提；或“该举报原因历史通过率高且样本足”也直接提
+const AUTO_SUBMIT_BY_HISTORY = true;
+const HIST_MIN_N = 20;      // 历史样本下限
+const HIST_MIN_RATE = 0.7;  // 历史通过率下限
+function buildHistFromResults(resultsMap){
+  const label2code={};
+  for(const r of REVIEW_CODES){ if(r.sub && r.label) label2code[r.label]=r.sub; }
+  label2code['消费者选择的品质退货与事实不符']='report_reason_return_wrong_reason';
+  label2code['消费者选择品质退货与事实不符']='report_reason_return_wrong_reason';
+  const out={};
+  for(const oid of Object.keys(resultsMap||{})){
+    const v=resultsMap[oid]||{}; const a=v.auditStatus; if(a!==6 && a!==3) continue;
+    const raw=String(v.sub||''); if(!raw) continue;
+    const code=label2code[raw]||raw;
+    const g=out[code]||(out[code]={pass:0,reject:0,n:0,rate:0});
+    if(a===6) g.pass++; else g.reject++;
+  }
+  for(const k of Object.keys(out)){ const g=out[k]; g.n=g.pass+g.reject; g.rate=g.n?g.pass/g.n:0; }
+  return out;
+}
 // 中差评：全部已实测的原因代码（按常用度排序，逐个试）
 const REVIEW_CODES = [
   { scene: 'report_type_unusual_comment', sub: 'report_reason_fake_negative_comment',          label: '评价等级为差评内容为好评' },
@@ -919,7 +939,11 @@ function createAppeal({store, jobs, app}){
         // 预审通过率高（平台 report_success_rate.level==='high' 且理由匹配）→ 直接自动提交，跳过人工核对队列
         // 但你已驳回(rejected)的单绝不自动提交，尊重人工判断
         const highPreAudit=!!(autoSubmitHighPreAudit && gate.preAudit && gate.preAudit.level==='high' && gate.preAudit.matched!==false && !(qit && qit.status==='rejected'));
-        if(reviewQueue && (c.kind==='review'||c.kind==='quality') && !highPreAudit && (!qit || (qit.status!=='confirmed' && qit.status!=='submitted'))){
+        // 历史高通过率（该举报原因过去通过率 ≥70% 且样本 ≥20）→ 也直接提
+        const _h=HIST[code.sub]||null;
+        const histAuto=!!(AUTO_SUBMIT_BY_HISTORY && _h && _h.n>=HIST_MIN_N && _h.rate>=HIST_MIN_RATE && !(qit && qit.status==='rejected'));
+        const autoApprove=highPreAudit||histAuto;
+        if(reviewQueue && (c.kind==='review'||c.kind==='quality') && !autoApprove && (!qit || (qit.status!=='confirmed' && qit.status!=='submitted'))){
           const q=loadQueue();
           q.items[c.order_id]=Object.assign({}, qit||{}, {
             order_id:c.order_id, kind:c.kind, shop:shopName, rank:revRank||c.level||'',
@@ -965,7 +989,7 @@ function createAppeal({store, jobs, app}){
           try{ const has=await orderHasReport(rB,c.order_id); if(has){ r.alreadyReported=has; saveSkip(c.order_id,'已举报过',shopName); } }catch(e){}
         }
         if(!r.submitted && (r.why==='不可举报'||r.why==='无需举报')) saveSkip(c.order_id,r.why,shopName);
-        log({shop:shopName,order:c.order_id,kind:c.kind,result: r.submitted?'已提交':(r.skipped?'跳过':'未提交'),reason: r.submitted?'':(r.skipped||r.reason||r.error||''),via: highPreAudit?'预审高通过率自动提交':undefined,detail:r});
+        log({shop:shopName,order:c.order_id,kind:c.kind,result: r.submitted?'已提交':(r.skipped?'跳过':'未提交'),reason: r.submitted?'':(r.skipped||r.reason||r.error||''),via: highPreAudit?'预审高通过率自动提交':(histAuto?('历史高通过率自动提交 '+Math.round((_h&&_h.rate||0)*100)+'%(n='+((_h&&_h.n)||0)+')'):undefined),detail:r});
        }catch(err){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'未提交',reason:'异常:'+String(err&&err.message||err)}); }
       }
     } finally { if(!wA.isDestroyed()) wA.destroy(); if(!wB.isDestroyed()) wB.destroy(); }
@@ -1001,9 +1025,15 @@ function createAppeal({store, jobs, app}){
     persist();
   }
 
+  let HIST={};   // 各举报原因的历史通过率（来自 results.json，run() 开头刷新）
+  function computeHist(){
+    try{ const p=path.join(baseDir(),'appeal-reports','results.json'); const rf=JSON.parse(fs.readFileSync(p,'utf8'))||{}; return buildHistFromResults(rf.map||{}); }
+    catch(e){ return {}; }
+  }
   function run({kinds=['quality','reviews'], submit=true, shopIds=null, maxPerShop=0, recheck=false, skipSync=false, reviewQueue=false, autoSubmitHighPreAudit=true, confirmedOnly=false}={}){
     if(state.running) return {error:'已有自动申诉任务在运行', id:state.id};
     const _skip=!!skipSync;
+    try{ HIST=computeHist(); }catch(e){ HIST={}; }
     state = {id:String(Date.now()), running:true, log:[], startedAt:new Date().toISOString(), finishedAt:null, summary:null, reportFile:null, skipSync:_skip, reviewQueue:!!reviewQueue};
     const log = e => { state.log.push({at:new Date().toISOString(), ...e}); persist(); };
     flow(kinds, submit, shopIds, maxPerShop, recheck, log, !!reviewQueue, autoSubmitHighPreAudit!==false, !!confirmedOnly);   // 后台执行，不阻塞
