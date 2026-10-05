@@ -120,7 +120,6 @@ h2{font-size:14px;margin:22px 0 10px}
     <button data-tab="ops" class="on">运营</button>
     <button data-tab="boss">老板</button>
     <button data-tab="review">复盘</button>
-    <button data-tab="queue">核对</button>
     <button data-tab="list">工单</button>
   </div>
   <div class="tools"><span id="gen" class="hint"></span><a class="btn" href="/export.csv" download>导出 CSV</a><button class="primary" id="refresh">刷新</button></div>
@@ -129,17 +128,6 @@ h2{font-size:14px;margin:22px 0 10px}
   <div id="ops"></div>
   <div id="boss" class="hide"></div>
   <div id="review" class="hide"></div>
-  <div id="queue" class="hide">
-    <div class="fbar">
-      <div class="chips" id="qchips"></div>
-      <div class="frow">
-        <select id="qshop" title="店铺"></select>
-        <input id="qq" placeholder="🔍 搜索订单号 / 评价内容" style="flex:1;min-width:180px">
-      </div>
-    </div>
-    <div id="queuewrap"></div>
-    <div id="qhint" class="hint" style="margin-top:10px">人工核对：修改描述/理由后点「确认提交」，下一轮自动申诉时提交。确认前不会上报平台。</div>
-  </div>
   <div id="list" class="hide">
     <div class="fbar">
       <div class="chips" id="chips"></div>
@@ -177,7 +165,7 @@ function auditState(oid){const v=RESULTS&&RESULTS[oid];if(!v)return null;const a
 function kindBd(k){return '<span class="kindbd '+(k==='品退'?'kd-q':'kd-r')+'">'+esc(k||'—')+'</span>'}
 function badge(s){const M={'已举报':'st-doing','举报成功':'st-ok','举报失败':'st-no','不可举报':'st-no','需转人工':'st-human','未处理':'st-todo'};const c=M[s]||'st-human';return '<span class="st '+c+'">'+esc(s||'—')+'</span>'}
 function auditCell(x){const tip=esc((x.auditMsg||'').replace(/\s+/g,' ').slice(0,200));if(!/^(已举报|举报成功|举报失败)$/.test(x.status||''))return '<td></td>';if(x.auditStatus===3)return '<td class="rej" title="'+tip+'">❌ 平台拒绝：'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0])+'</td>';if(x.auditStatus===6)return '<td class="okc">✅ 审核通过</td>';if(x.auditStatus==null)return '<td class="wait">平台记录待同步</td>';return '<td class="wait">审核中</td>'}
-function drawTabs(){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===TAB));['ops','boss','review','queue','list'].forEach(t=>$(t).classList.toggle('hide',t!==TAB))}
+function drawTabs(){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===TAB));['ops','boss','review','list'].forEach(t=>$(t).classList.toggle('hide',t!==TAB))}
 function drawOps(){
   const o=STATS.ops;
   $('ops').innerHTML=kindCards(STATS.byKind||{})
@@ -234,12 +222,28 @@ function drawReview(){
 }
 let PAGE=1, F={status:'',kind:'',shop:'',q:'',from:'',to:'',scenario:''};
 const STATUSES=['已举报','举报成功','举报失败','不可举报','需转人工','未举报'];
+const USTATUSES=['待核对','已确认','已提交','举报成功','举报失败','不举报','未举报','需转人工'];
+function uniRows(){
+  const qmap={}; for(const q of (QDATA.items||[])){ if(q&&q.order_id) qmap[q.order_id]=q; }
+  const out=[], seen=new Set();
+  for(const d of (DATA.items||[])){
+    if(!d||!d.order_id) continue; seen.add(d.order_id);
+    const q=qmap[d.order_id]; let st=d.status||'';
+    if(q && (q.status==='待核对'||q.status==='已确认')) st=q.status;
+    out.push(Object.assign({},d,{status:st,__q:q||null}));
+  }
+  for(const q of (QDATA.items||[])){
+    if(!q||!q.order_id||seen.has(q.order_id)) continue;
+    out.push({kind:'',shop:q.shop||'',order_id:q.order_id,date:q.date||'',status:q.status||'',why:'',tags:[],submitter:'',auditStatus:null,auditMsg:'',content:q.content||'',rank:q.rank||'',report_reason:'',appeal_desc:q.desc||'',scenario:'',__q:q});
+  }
+  return out;
+}
 let SORT={field:'',dir:'desc'};
 const dshort=s=>{ s=String(s||''); if(!s) return '—'; const m=s.match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}))?/); return m?(m[2]+'-'+m[3]+(m[4]?(' '+m[4]):'')):s.slice(0,16); };
 function sortRows(rows){ if(!SORT.field) return rows; const k=SORT.field, sgn=(SORT.dir==='asc')?1:-1; return rows.slice().sort((a,b)=>{ const av=String(a[k]||''), bv=String(b[k]||''); if(!av&&!bv) return 0; if(!av) return 1; if(!bv) return -1; return av<bv?-sgn:(av>bv?sgn:0); }); }
 function CounterOf(rows){ const c={}; for(const x of rows){ c[x.status]=(c[x.status]||0)+1; } return c; }
 function filtered(skipStatus){
-  return DATA.items.filter(x=>{
+  return uniRows().filter(x=>{
     if(!x.status) return false;
     if(!skipStatus && F.status && x.status!==F.status) return false;
     if(F.kind && x.kind!==F.kind) return false;
@@ -254,7 +258,7 @@ function filtered(skipStatus){
 }
 function drawChips(all){
   const c=CounterOf(all); const el=$('chips');
-  el.innerHTML=['全部'].concat(STATUSES).map(k=>{
+  el.innerHTML=['全部'].concat(USTATUSES).map(k=>{
     const n=(k==='全部')?all.length:(c[k]||0);
     if(k!=='全部'&&!n) return '';
     return '<button class="chip'+(F.status===k||(k==='全部'&&!F.status)?' on':'')+'" data-st="'+k+'">'+k+'<i>'+n+'</i></button>';
@@ -286,11 +290,13 @@ function detailCell(x){
     ['申诉说明', esc(x.appeal_desc||x.desc||'—')],
     ['日期线', '反馈 '+dshort(x.feedback_date||x.date)+' · 抓取 '+dshort(x.collected_at)+' · 操作 '+dshort(x.operated_at)+' · 提交 '+dshort(x.submitted_at)]
   ];
-  return '<div class="det">'+kv.map(([k,v])=>'<div class="detrow"><b>'+k+'</b><span>'+v+'</span></div>').join('')+'</div>';
+  const ro='<div class="det">'+kv.map(([k,v])=>'<div class="detrow"><b>'+k+'</b><span>'+v+'</span></div>').join('')+'</div>';
+  const q=(x.__q && x.__q.status==='待核对')?('<div class="qedit">'+qEditBlock(x.__q)+'</div>'):'';
+  return ro+q;
 }
 
 function drawList(){
-  const all=DATA.items;
+  const all=uniRows();
   if(!$('fshop').options.length) drawShopSel(all);
   drawScenarioSel(all);
   drawSeg();
@@ -316,6 +322,8 @@ function drawList(){
       +'</tr>'
       +'<tr class="ldet hide" data-of="'+esc(x.order_id)+'"><td colspan="7">'+detailCell(x)+'</td></tr>').join('')+'</tbody></table>';
   $('listwrap').querySelectorAll('tr.lrow').forEach(tr=>{ tr.onclick=()=>{ const d=$('listwrap').querySelector('tr.ldet[data-of="'+tr.dataset.o+'"]'); if(d) d.classList.toggle('hide'); }; });
+  // 展开行内的「核对」操作（改理由/文案、确认/驳回、撤回）
+  $('listwrap').querySelectorAll('tr.ldet button.qa').forEach(b=>b.onclick=()=>queueAct(b.dataset.oid,b.dataset.act));
   $('pager').innerHTML= size>0 && pages>1
     ? '<button data-pg="1">首页</button><button data-pg="'+(PAGE-1)+'">上一页</button><span class="hint">第 '+PAGE+' / '+pages+' 页 · 每页 '+size+' 条</span><button data-pg="'+(PAGE+1)+'">下一页</button><button data-pg="'+pages+'">末页</button>'
     : '<span class="hint">共 '+rows.length+' 条</span>';
@@ -399,7 +407,22 @@ function qFiltered(){
     return true;
   });
 }
+function qEditBlock(x){
+    const rec=(x.recommend&&x.recommend.is_match)?('<span class="tag">平台推荐:'+esc(x.recommend.sub_scene_type_name||'')+' · 置信度'+esc(x.recommend.confidence)+'</span>'):'<span class="tag">平台无推荐</span>';
+    const pa=x.preAudit?('<span class="tag" style="background:'+(x.preAudit.level==='low'?'#fdeceb;color:#c0392b':'#e9f7f0;color:#1f7a55')+'">预审:'+(x.preAudit.level||'?')+'</span>'+(x.preAudit.rateReason?'<span class="hint"> '+esc(String(x.preAudit.rateReason).slice(0,60))+'</span>':'')):'';
+    const sel='<select id="qsub_'+x.order_id+'" style="max-width:260px">'+QREASONS.map(r=>'<option value="'+r[0]+'"'+(r[0]===x.sub?' selected':'')+'>'+esc(r[1])+'</option>').join('')+'</select>';
+    const act = x.status==='待核对'
+      ? '<button class="primary qa" data-oid="'+x.order_id+'" data-act="confirm">✅ 确认提交</button> <button class="qa" data-oid="'+x.order_id+'" data-act="reject">🚫 不举报</button>'
+      : (x.status==='已确认' ? '<button class="qa" data-oid="'+x.order_id+'" data-act="reset">↩ 撤回确认</button>' : '');
+    return '<div class="pair"><div class="hint"><b>'+esc(x.shop||'')+'</b> · <span class="mono">'+esc(x.order_id)+'</span> · '+esc(x.rank||'')+' · '+esc(x.date||'')+' · '+act+'</div>'
+      +'<div style="margin:6px 0">'+rec+pa+' <span class="hint">评价:'+esc(x.content||'')+'</span></div>'
+      +(x.llmWhy?'<div class="hint">AI:'+esc(String(x.llmWhy).slice(0,90))+'</div>':'')
+      +(x.goneReason?'<div class="hint">失效原因:'+esc(x.goneReason)+'</div>':'')
+      +'<textarea id="qta_'+x.order_id+'" rows="2" style="width:100%;margin:6px 0;font:inherit">'+esc(x.desc||'')+'</textarea>'
+      +'<div>'+sel+'</div></div>';
+}
 function drawQueue(){
+  if(!$('queuewrap')) return;
   if(document.activeElement && $('queue').contains(document.activeElement) && /TEXTAREA|INPUT|SELECT/.test(document.activeElement.tagName)) return; // 正在编辑时不重绘
   const all=QDATA.items||[]; const cnt={}; for(const s of ['待核对','已确认','已提交','不举报','已失效']) cnt[s]=all.filter(x=>x.status===s).length;
   const el=$('qchips');
@@ -414,20 +437,7 @@ function drawQueue(){
   }
   const rows=qFiltered().sort((a,b)=>(b.filledAt||'').localeCompare(a.filledAt||''));
   if(!rows.length){ $('queuewrap').innerHTML='<div class="empty">没有'+esc(QF.status||'')+'的记录。</div>'; return; }
-  $('queuewrap').innerHTML=rows.map(x=>{
-    const rec=(x.recommend&&x.recommend.is_match)?('<span class="tag">平台推荐:'+esc(x.recommend.sub_scene_type_name||'')+' · 置信度'+esc(x.recommend.confidence)+'</span>'):'<span class="tag">平台无推荐</span>';
-    const pa=x.preAudit?('<span class="tag" style="background:'+(x.preAudit.level==='low'?'#fdeceb;color:#c0392b':'#e9f7f0;color:#1f7a55')+'">预审:'+(x.preAudit.level||'?')+'</span>'+(x.preAudit.rateReason?'<span class="hint"> '+esc(String(x.preAudit.rateReason).slice(0,60))+'</span>':'')):'';
-    const sel='<select id="qsub_'+x.order_id+'" style="max-width:260px">'+QREASONS.map(r=>'<option value="'+r[0]+'"'+(r[0]===x.sub?' selected':'')+'>'+esc(r[1])+'</option>').join('')+'</select>';
-    const act = x.status==='待核对'
-      ? '<button class="primary qa" data-oid="'+x.order_id+'" data-act="confirm">✅ 确认提交</button> <button class="qa" data-oid="'+x.order_id+'" data-act="reject">🚫 不举报</button>'
-      : (x.status==='已确认' ? '<button class="qa" data-oid="'+x.order_id+'" data-act="reset">↩ 撤回确认</button>' : '');
-    return '<div class="pair"><div class="hint"><b>'+esc(x.shop||'')+'</b> · <span class="mono">'+esc(x.order_id)+'</span> · '+esc(x.rank||'')+' · '+esc(x.date||'')+' · '+act+'</div>'
-      +'<div style="margin:6px 0">'+rec+pa+' <span class="hint">评价:'+esc(x.content||'')+'</span></div>'
-      +(x.llmWhy?'<div class="hint">AI:'+esc(String(x.llmWhy).slice(0,90))+'</div>':'')
-      +(x.goneReason?'<div class="hint">失效原因:'+esc(x.goneReason)+'</div>':'')
-      +'<textarea id="qta_'+x.order_id+'" rows="2" style="width:100%;margin:6px 0;font:inherit">'+esc(x.desc||'')+'</textarea>'
-      +'<div>'+sel+'</div></div>';
-  }).join('');
+  $('queuewrap').innerHTML=rows.map(x=>qEditBlock(x)).join('');
   $('queuewrap').querySelectorAll('button.qa').forEach(b=>b.onclick=()=>queueAct(b.dataset.oid,b.dataset.act));
 }
 async function queueAct(oid,action){
