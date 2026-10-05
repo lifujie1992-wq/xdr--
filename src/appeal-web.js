@@ -21,7 +21,11 @@ table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e2e8
 table.list{table-layout:fixed}
 table.list th,table.list td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
 table.list col.c1{width:210px}table.list col.c4{width:220px}table.list col.c2{width:112px}
-table.list col.c5{width:auto}table.list col.c9{width:78px}table.list col.c10{width:300px}
+table.list col.c5{width:auto}table.list col.c9{width:78px}table.list col.c5{width:200px}
+table.list col.c12{width:auto}
+.list td.ops{white-space:normal;vertical-align:top}
+.list td.ops .pair{margin:0;border:0;padding:0;background:none}
+table.list col.c10{width:300px}
 table.list td.shopcell b{font-size:13px}
 table.list td .sub{color:#94a3b8;font-size:11px}
 .kindbd{display:inline-block;font-size:10px;padding:2px 7px;border-radius:5px;white-space:nowrap}
@@ -292,7 +296,7 @@ function detailCell(x){
     ['日期线', '反馈 '+dshort(x.feedback_date||x.date)+' · 抓取 '+dshort(x.collected_at)+' · 操作 '+dshort(x.operated_at)+' · 提交 '+dshort(x.submitted_at)]
   ];
   const ro='<div class="det">'+kv.map(([k,v])=>'<div class="detrow"><b>'+k+'</b><span>'+v+'</span></div>').join('')+'</div>';
-  const q=(x.__q && x.__q.status==='待核对')?('<div class="qedit">'+qEditBlock(x.__q)+'</div>'):((x.status==='待核对')?('<div class="hint" style="padding:6px 2px">该单暂不在核对队列（全量跑完、自动入队后即可在此确认）</div>'):'');
+  const q=((x.status==='待核对') && !(x.__q && x.__q.status==='待核对'))?('<div class="hint" style="padding:6px 2px">该单暂不在核对队列（全量跑完、自动入队后即可在此确认）</div>'):'';
   return ro+q;
 }
 
@@ -310,8 +314,8 @@ function drawList(){
   const view=size>0?rows.slice((PAGE-1)*size,PAGE*size):rows;
   $('fcount').textContent='共 '+rows.length+' 条';
   if(!rows.length){ $('listwrap').innerHTML='<div class="empty">没有符合条件的记录。</div>'; $('pager').innerHTML=''; return }
-  $('listwrap').innerHTML='<table class="list"><colgroup><col class="c1"><col class="c11"><col class="c4"><col class="c2"><col class="c5"><col class="c9"><col class="c10"></colgroup>'
-   +'<thead><tr><th>店铺 / 类型 / 日期</th><th>日期线</th><th>订单号 / 商品</th><th>状态</th><th>状态原因</th><th>提交人</th><th>审核结果</th></tr></thead><tbody>'
+  $('listwrap').innerHTML='<table class="list"><colgroup><col class="c1"><col class="c11"><col class="c4"><col class="c2"><col class="c5"><col class="c12"><col class="c9"><col class="c10"></colgroup>'
+   +'<thead><tr><th>店铺 / 类型 / 日期</th><th>日期线</th><th>订单号 / 商品</th><th>状态</th><th>状态原因</th><th>核对 / 操作</th><th>提交人</th><th>审核结果</th></tr></thead><tbody>'
    +view.map(x=>'<tr class="lrow" data-o="'+esc(x.order_id)+'">'
       +'<td class="shopcell"><b>'+esc(x.shop)+'</b><br>'+kindBd(x.kind)+' <span class="sub">'+esc(x.date)+'</span>'+(x.scenario?' <span class="tag scn">'+esc(x.scenario)+'</span>':'')+'</td>'
       +'<td class="dates" title="负反馈 '+(x.feedback_date||x.date||'—')+' | 抓取 '+(x.collected_at||'—')+' | 操作 '+(x.operated_at||'—')+' | 提交 '+(x.submitted_at||'—')+'">'
@@ -319,13 +323,14 @@ function drawList(){
       +'<td class="ordcell"><span class="mono">'+esc(x.order_id)+'</span><br><span class="sub">'+esc(x.product_name||'')+'</span>'+(x.product_id?'<span class="sub"> · 编码 '+esc(x.product_id)+'</span>':'')+'</td>'
       +'<td>'+badge(x.status)+'</td>'
       +'<td class="why" title="'+esc(x.why||'')+'">'+esc(x.why||'—')+'</td>'
+      +'<td class="ops">'+((x.__q && x.__q.status==='待核对')?qEditBlock(x.__q):('<span class="hint">'+esc((x.kind==='品退'?x.aftersale:x.content)||x.report_reason||'—')+'</span>'))+'</td>'
       +'<td>'+(x.submitter?'<span class="tag">'+esc(x.submitter)+'</span>':'')+'</td>'
       +auditCell(x)
       +'</tr>'
-      +'<tr class="ldet'+((x.status==='待核对'||x.status==='已确认')?'':' hide')+'" data-of="'+esc(x.order_id)+'"><td colspan="7">'+detailCell(x)+'</td></tr>').join('')+'</tbody></table>';
+      +'<tr class="ldet'+((x.status==='待核对'||x.status==='已确认')?'':' hide')+'" data-of="'+esc(x.order_id)+'"><td colspan="8">'+detailCell(x)+'</td></tr>').join('')+'</tbody></table>';
   $('listwrap').querySelectorAll('tr.lrow').forEach(tr=>{ tr.onclick=()=>{ const d=$('listwrap').querySelector('tr.ldet[data-of="'+tr.dataset.o+'"]'); if(d) d.classList.toggle('hide'); }; });
   // 展开行内的「核对」操作（改理由/文案、确认/驳回、撤回）
-  $('listwrap').querySelectorAll('tr.ldet button.qa').forEach(b=>b.onclick=()=>queueAct(b.dataset.oid,b.dataset.act));
+  $('listwrap').querySelectorAll('button.qa').forEach(b=>b.onclick=()=>queueAct(b.dataset.oid,b.dataset.act));
   $('pager').innerHTML= size>0 && pages>1
     ? '<button data-pg="1">首页</button><button data-pg="'+(PAGE-1)+'">上一页</button><span class="hint">第 '+PAGE+' / '+pages+' 页 · 每页 '+size+' 条</span><button data-pg="'+(PAGE+1)+'">下一页</button><button data-pg="'+pages+'">末页</button>'
     : '<span class="hint">共 '+rows.length+' 条</span>';
