@@ -574,7 +574,10 @@ async function llmClassifyReview(rank, content, chat, hasImg, opts){
       const V=['report','real_problem','quality_claim','uncertain'];
       let v=V.indexOf(o.verdict)>=0?o.verdict:(o.reason?'report':'uncertain');
       return {verdict:v, reason:o.reason||null, confidence:Number(o.confidence)||0, why:String(o.why||'').slice(0,80)};
-    }catch(e){ if(attempt===2) return {verdict:'uncertain',reason:null,confidence:0,why:'大模型调用失败:'+String(e.message||e).slice(0,40)}; }
+    }catch(e){
+      if(attempt===2) return {verdict:'uncertain',reason:null,confidence:0,why:'大模型调用失败:'+String(e.message||e).slice(0,40)};
+      await new Promise(r=>setTimeout(r, 800*(attempt+1)));   // 退避重试，避开瞬时抖动
+    }
   }
   return {verdict:'uncertain',reason:null,confidence:0,why:'大模型无结果'};
 }
