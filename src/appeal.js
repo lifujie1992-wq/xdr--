@@ -693,6 +693,16 @@ function createAppeal({store, jobs, app}){
     return out;
   }
 
+  function confirmedCandidates(){
+    const q=loadQueue(); const out=[];
+    const byName=new Map((store.items||[]).map(s=>[s.name,s.id]));
+    for(const it of Object.values(q.items||{})){
+      if(!it || it.status!=='confirmed' || !it.order_id) continue;
+      out.push({order_id:String(it.order_id), kind:'review', shop:it.shop||'', shop_id:byName.get(it.shop)||'', level:it.rank||'中评', content:it.content||'', date:it.date||'', comment_date:it.date||''});
+    }
+    return out;
+  }
+
   async function processShop(shopId, shopName, items, submit, log, reviewQueue, autoSubmitHighPreAudit){
     const ses = session.fromPartition('persist:shop-'+shopId);
     const mk=()=>{const w=new BrowserWindow({show:false,width:1280,height:900,webPreferences:{...secure,session:ses,backgroundThrottling:false}});w.webContents.setWindowOpenHandler(()=>({action:'deny'}));return w;};
@@ -727,6 +737,25 @@ function createAppeal({store, jobs, app}){
 
       for(const c of items){
        try{
+        // ⓪pre 已确认(人工核对后)的单：严格按人工确认/修改后的最新内容提交，跳过飞鸽核查/大模型/预审，避免被飞鸽加载失败挡住
+        const _qconf=(c.kind==='review')?((loadQueue().items||{})[c.order_id]||null):null;
+        if(reviewQueue && submit && _qconf && _qconf.status==='confirmed'){
+          const cDesc=sanitizeDesc(_qconf.desc||'');
+          const cScene=_qconf.scene||'report_type_unusual_comment';
+          const cSub=_qconf.sub||'';
+          let cCid=(ALLOWED[c.order_id]&&ALLOWED[c.order_id].comment_id)||'';
+          if(!cCid){ try{ const rc=JSON.parse(await runPage(rA,pageReviewCheck,{order:c.order_id,scene:cScene,sub:cSub})||'{}'); if(rc&&rc.comment_id) cCid=String(rc.comment_id); }catch(e){} }
+          let cProof=[];
+          if(_qconf.proofUrl){ try{ const tpl=JSON.parse(await runPage(rA,pageProofTemplate,{sub:cSub})||'{}'); if(tpl&&tpl.tpl_id) cProof=[{tpl_id:tpl.tpl_id,title:tpl.title||'',imageUrls:[_qconf.proofUrl]}]; }catch(e){} }
+          let apC={}; try{ apC=JSON.parse(await runPage(rA,pageReviewApply,{order:c.order_id,scene:cScene,sub:cSub,cid:cCid,desc:cDesc,proofInfos:cProof})||'{}'); }catch(e){ apC={error:String(e&&e.message||e)}; }
+          let respC={}; try{ respC=JSON.parse(apC.resp||'{}'); }catch(e){ respC={}; }
+          const okC=!!(respC&&respC.code===0&&respC.data&&respC.data.id);
+          if(okC){ const q2=loadQueue(); if(q2.items[c.order_id]){ q2.items[c.order_id].status='submitted'; q2.items[c.order_id].submittedAt=new Date().toISOString(); saveQueue(q2); } }
+          const msgC=(respC&&(respC.msg||respC.message))||apC.error||'提交失败';
+          if(!okC && /不能举报|不可举报|无需举报/.test(String(msgC))){ saveSkip(c.order_id,'不可举报',shopName); }
+          log({shop:shopName,order:c.order_id,kind:c.kind,result: okC?'已提交':'未提交',reason: okC?'':msgC,via:'人工已确认提交',detail:{applyResp:respC,desc:String(cDesc).slice(0,80),sub:cSub,cid:cCid}});
+          continue;
+        }
         const flygeUrl = c.flyge_url || ('https://im.jinritemai.com/pc_seller_v2/main/workspace?fromOrder=' + c.order_id);
         // ① 飞鸽核查（先拿聊天记录，供"像运营一样判断"用）
         if(pageReady!==true){ await rA.loadURL(reportUrl).catch(()=>{}); await sleep(2500); pageReady=true; }
@@ -911,13 +940,14 @@ function createAppeal({store, jobs, app}){
     } finally { if(!wA.isDestroyed()) wA.destroy(); if(!wB.isDestroyed()) wB.destroy(); }
   }
 
-  async function flow(kinds, submit, shopIds, maxPerShop, recheck, log, reviewQueue, autoSubmitHighPreAudit){
+  async function flow(kinds, submit, shopIds, maxPerShop, recheck, log, reviewQueue, autoSubmitHighPreAudit, confirmedOnly){
     try{
       if(!state.skipSync){ try{ log({step:'同步平台举报记录'}); const sr=await syncResults({days:30,pages:6}); log({step:'同步完成', 订单:sr&&sr.count}); }catch(e){} } else { log({step:'跳过同步（skipSync）'}); }
       if(reviewQueue){ const q=loadQueue(); const c=Object.values(q.items).filter(x=>x.status==='confirmed').length, p=Object.values(q.items).filter(x=>x.status==='pending').length; log({step:'核对队列', 待确认提交:c, 待人工核对:p}); }
       log({step:'开始筛查', kinds});
       try{ const _sp=skipFile(); let _raw=null,_err=null; try{ _raw=fs.readFileSync(_sp,'utf8'); }catch(e){ _err=String(e.message||e); } let _parsed=null; try{ _parsed=JSON.parse(_raw).constructor.name+':'+Object.keys(JSON.parse(_raw)).length; }catch(e){ _parsed='parse失败:'+String(e.message||e); } log({step:'排除名单诊断', skipFile:_sp, cwd:process.cwd(), 读到字节:_raw?_raw.length:0, err:_err, 解析:_parsed, loadSkips条数:Object.keys(loadSkips()).length}); }catch(e){ log({step:'诊断异常',err:String(e.message||e)}); }
-      const cands = await screen(kinds, recheck);
+      const cands = confirmedOnly ? confirmedCandidates() : await screen(kinds, recheck);
+      if(confirmedOnly) log({step:'只提交已确认', 待提交: cands.length});
       const target = shopIds ? cands.filter(c=>shopIds.includes(c.shop_id)) : cands;
       log({step:'筛查完成', 候选: target.length, 每店上限: maxPerShop, 重核: !!recheck});
       const groups = new Map();
@@ -940,12 +970,12 @@ function createAppeal({store, jobs, app}){
     persist();
   }
 
-  function run({kinds=['quality','reviews'], submit=true, shopIds=null, maxPerShop=0, recheck=false, skipSync=false, reviewQueue=false, autoSubmitHighPreAudit=true}={}){
+  function run({kinds=['quality','reviews'], submit=true, shopIds=null, maxPerShop=0, recheck=false, skipSync=false, reviewQueue=false, autoSubmitHighPreAudit=true, confirmedOnly=false}={}){
     if(state.running) return {error:'已有自动申诉任务在运行', id:state.id};
     const _skip=!!skipSync;
     state = {id:String(Date.now()), running:true, log:[], startedAt:new Date().toISOString(), finishedAt:null, summary:null, reportFile:null, skipSync:_skip, reviewQueue:!!reviewQueue};
     const log = e => { state.log.push({at:new Date().toISOString(), ...e}); persist(); };
-    flow(kinds, submit, shopIds, maxPerShop, recheck, log, !!reviewQueue, autoSubmitHighPreAudit!==false);   // 后台执行，不阻塞
+    flow(kinds, submit, shopIds, maxPerShop, recheck, log, !!reviewQueue, autoSubmitHighPreAudit!==false, !!confirmedOnly);   // 后台执行，不阻塞
     return {id:state.id, started:true};
   }
 

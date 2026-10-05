@@ -89,6 +89,7 @@ for f in tools/*.plist; do
   rm -f "/tmp/_plist_$b"
 done
 [ -f tools/daily-appeal.sh ] && { cp tools/daily-appeal.sh "$APPD/daily-appeal.sh"; chmod +x "$APPD/daily-appeal.sh"; }
+[ -f tools/submit-confirmed.sh ] && { cp tools/submit-confirmed.sh "$APPD/submit-confirmed.sh"; chmod +x "$APPD/submit-confirmed.sh"; }
 # 若存在关闭开关，则只更新文件、不启用定时任务
 if [ -f "$APPD/TIMERS_OFF" ]; then
   launchctl unload -w "$LA/local.shopdesk.appeal.plist" 2>/dev/null || true
