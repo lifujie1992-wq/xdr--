@@ -52,7 +52,7 @@ table.list td.why{font-size:12px;line-height:1.5;white-space:normal;color:#47556
 table.list td.tags .badge{margin:1px 2px 1px 0;font-size:10px;padding:2px 6px}
 .tag{white-space:nowrap;display:inline-block}
 .tag.scn{background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:10px;padding:1px 7px;font-size:11px}
-table.list col.c11{width:132px}
+table.list col.c11{width:152px}
 .list td.dates{white-space:normal;font-size:11px;line-height:1.55;color:#64748b}
 .list td.dates span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 tr.lrow{cursor:pointer}
@@ -336,7 +336,8 @@ function drawList(){
    +view.map(x=>'<tr class="lrow" data-o="'+esc(x.order_id)+'">'
       +'<td class="shopcell"><b>'+esc(x.shop)+'</b><br>'+kindBd(x.kind)+' <span class="sub">'+esc(x.date)+'</span>'+(x.scenario?' <span class="tag scn">'+esc(x.scenario)+'</span>':'')+'</td>'
       +'<td class="dates" title="负反馈 '+(x.feedback_date||x.date||'—')+' | 抓取 '+(x.collected_at||'—')+' | 操作 '+(x.operated_at||'—')+' | 提交 '+(x.submitted_at||'—')+'">'
-        +'<span>反馈 '+dshort(x.feedback_date||x.date)+'</span><span>抓取 '+dshort(x.collected_at)+'</span><span>操作 '+dshort(x.operated_at)+'</span><span>提交 '+dshort(x.submitted_at)+'</span></td>'
+        +'<span>反馈 '+dshort(x.feedback_date||x.date).slice(0,5)+' · 抓取 '+dshort(x.collected_at).slice(0,5)+'</span>'
+        +'<span>操作 '+dshort(x.operated_at).slice(0,5)+' · 提交 '+dshort(x.submitted_at).slice(0,5)+'</span></td>'
       +'<td class="ordcell"><span class="mono">'+esc(x.order_id)+'</span><br><span class="sub">'+esc(x.product_name||'')+'</span>'+(x.product_id?'<span class="sub"> · 编码 '+esc(x.product_id)+'</span>':'')+'</td>'
       +'<td>'+badge(x.status)+'</td>'
       +'<td class="why" title="'+esc(x.why||'')+'">'+esc(x.why||'—')+'</td>'
@@ -444,7 +445,7 @@ function qEditBlock(x){
   const tplBar = (st==='待核对' && x.kind!=='quality') ? '<a class="lnk" data-tpl="'+x.order_id+'">✨ 套用预置文案</a> · <a class="lnk" data-ai="'+x.order_id+'">↺ AI 原稿</a>' : '';
   return '<div class="qinline">'
     +'<div class="qhint" title="'+esc(x.content||'')+'">'+(x.kind==='quality'?'售后：':'评价：')+esc(x.content||'—')+(rec||pa?' '+rec+pa:'')+'</div>'
-    +'<textarea id="qta_'+x.order_id+'" rows="3">'+esc(x.desc||'')+'</textarea>'
+    +'<textarea id="qta_'+x.order_id+'" rows="2">'+esc(x.desc||'')+'</textarea>'
     +'<div class="qrow">'+sel+(tplBar?('<span class="hint">'+tplBar+'</span>'):'')+'</div>'
     +'<div class="qrow">'+act+'</div>'
     +attBlock(x)
