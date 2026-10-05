@@ -21,8 +21,8 @@ table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e2e8
 table.list{table-layout:fixed}
 table.list th,table.list td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
 table.list col.c1{width:210px}table.list col.c4{width:220px}table.list col.c2{width:112px}
-table.list col.c5{width:auto}table.list col.c9{width:78px}table.list col.c5{width:200px}
-table.list col.c12{width:auto}
+table.list col.c5{width:auto}table.list col.c9{width:78px}table.list col.c5{width:auto}
+table.list col.c12{width:620px}
 .list td.ops{white-space:normal;vertical-align:top}
 .list td.ops .pair{margin:0;border:0;padding:0;background:none}
 table.list col.c10{width:300px}
@@ -62,6 +62,11 @@ tr.ldet td{background:#f8fafc;padding:0 12px 10px}
 .detrow{display:flex;gap:6px;max-width:100%}
 .detrow b{color:#64748b;font-weight:600;flex:none}
 .detrow span{white-space:pre-wrap}
+.qinline{display:flex;flex-direction:column;gap:5px;max-width:620px}
+.qinline .qhint{font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qinline textarea{width:100%;margin:0;font:12px/1.5 inherit;padding:6px 8px;border:1px solid #dbe2ea;border-radius:6px;resize:vertical}
+.qrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.list td.ops{vertical-align:top;padding-top:10px!important}
 .att{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 6px}
 .attitem{position:relative;display:inline-block;width:64px;height:64px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#f8fafc;text-decoration:none}
 .attitem img{width:100%;height:100%;object-fit:cover;display:block}
@@ -427,20 +432,23 @@ function qFiltered(){
   });
 }
 function qEditBlock(x){
-    const rec=(x.recommend&&x.recommend.is_match)?('<span class="tag">平台推荐:'+esc(x.recommend.sub_scene_type_name||'')+' · 置信度'+esc(x.recommend.confidence)+'</span>'):'<span class="tag">平台无推荐</span>';
-    const pa=x.preAudit?('<span class="tag" style="background:'+(x.preAudit.level==='low'?'#fdeceb;color:#c0392b':'#e9f7f0;color:#1f7a55')+'">预审:'+(x.preAudit.level||'?')+'</span>'+(x.preAudit.rateReason?'<span class="hint"> '+esc(String(x.preAudit.rateReason).slice(0,60))+'</span>':'')):'';
-    const sel='<select id="qsub_'+x.order_id+'" style="max-width:260px">'+QREASONS.map(r=>'<option value="'+r[0]+'"'+(r[0]===x.sub?' selected':'')+'>'+esc(r[1])+'</option>').join('')+'</select>';
-    const act = x.status==='待核对'
-      ? '<button class="primary qa" data-oid="'+x.order_id+'" data-act="confirm">✅ 确认提交</button> <button class="qa" data-oid="'+x.order_id+'" data-act="reject">🚫 不举报</button>'
-      : (x.status==='已确认' ? '<button class="qa" data-oid="'+x.order_id+'" data-act="reset">↩ 撤回确认</button>' : '');
-    return '<div class="pair"><div class="hint"><b>'+esc(x.shop||'')+'</b> · <span class="mono">'+esc(x.order_id)+'</span> · '+esc(x.rank||'')+' · '+esc(x.date||'')+' · '+act+'</div>'
-      +'<div style="margin:6px 0">'+rec+pa+' <span class="hint">'+(x.kind==='quality'?'售后:':'评价:')+esc(x.content||'')+'</span></div>'
-      +(x.llmWhy?'<div class="hint">AI:'+esc(String(x.llmWhy).slice(0,90))+'</div>':'')
-      +(x.goneReason?'<div class="hint">失效原因:'+esc(x.goneReason)+'</div>':'')
-      +'<textarea id="qta_'+x.order_id+'" rows="2" style="width:100%;margin:6px 0;font:inherit">'+esc(x.desc||'')+'</textarea>'
-      +'<div>'+sel+'</div>'
-      +attBlock(x)+'</div>';
+  const rec=(x.recommend&&x.recommend.is_match)?('<span class="tag">平台推荐:'+esc(x.recommend.sub_scene_type_name||'')+'</span>'):'';
+  const pa=x.preAudit?('<span class="tag" style="background:'+(x.preAudit.level==='low'?'#fdeceb;color:#c0392b':'#e9f7f0;color:#1f7a55')+'">预审:'+(x.preAudit.level||'?')+'</span>'):'';
+  const sel='<select id="qsub_'+x.order_id+'" style="max-width:230px">'+QREASONS.map(r=>'<option value="'+r[0]+'"'+(r[0]===x.sub?' selected':'')+'>'+esc(r[1])+'</option>').join('')+'</select>';
+  const st=x.status;
+  const act = st==='待核对'
+    ? '<button class="primary qa" data-oid="'+x.order_id+'" data-act="confirm">✅ 确认提交</button> <button class="qa" data-oid="'+x.order_id+'" data-act="reject">🚫 不举报</button>'
+    : (st==='已确认' ? '<button class="qa" data-oid="'+x.order_id+'" data-act="reset">↩ 撤回确认</button>' : '');
+  const tplBar = (st==='待核对' && x.kind!=='quality') ? '<a class="lnk" data-tpl="'+x.order_id+'">✨ 套用预置文案</a> · <a class="lnk" data-ai="'+x.order_id+'">↺ AI 原稿</a>' : '';
+  return '<div class="qinline">'
+    +'<div class="qhint" title="'+esc(x.content||'')+'">'+(x.kind==='quality'?'售后：':'评价：')+esc(x.content||'—')+(rec||pa?' '+rec+pa:'')+'</div>'
+    +'<textarea id="qta_'+x.order_id+'" rows="3">'+esc(x.desc||'')+'</textarea>'
+    +'<div class="qrow">'+sel+(tplBar?('<span class="hint">'+tplBar+'</span>'):'')+'</div>'
+    +'<div class="qrow">'+act+'</div>'
+    +attBlock(x)
+    +'</div>';
 }
+
 function drawQueue(){
   if(!$('queuewrap')) return;
   if(document.activeElement && $('queue').contains(document.activeElement) && /TEXTAREA|INPUT|SELECT/.test(document.activeElement.tagName)) return; // 正在编辑时不重绘
