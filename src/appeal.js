@@ -8,6 +8,15 @@ let USER_DATA = '';
 const secure = {nodeIntegration:false, contextIsolation:true, sandbox:true};
 
 // ---- 在店铺页面里执行的脚本（自包含，通过 executeJavaScript 注入）----
+async function pageFlygeInfo(){
+  try{
+    const u=String(location.href||'');
+    const t=(document.body?document.body.innerText:'').slice(0,4000);
+    const login=/login|passport|sso/i.test(u) || /扫码登录|验证码登录|密码登录|登录已失效|请先登录|重新登录/.test(t);
+    const ready=!!document.querySelector('.messageList') || document.querySelectorAll('.msgItemWrap').length>0;
+    return JSON.stringify({url:u, login:login, ready:ready});
+  }catch(e){ return JSON.stringify({error:String(e&&e.message||e)}) }
+}
 async function pageFlyge(){
   const sleep=ms=>new Promise(r=>setTimeout(r,ms));
   // 会话列表容器：出现即代表飞鸽已加载（空会话也会有它）
@@ -823,10 +832,24 @@ function createAppeal({store, jobs, app}){
         // ① 飞鸽核查（先拿聊天记录，供"像运营一样判断"用）
         if(pageReady!==true){ await rA.loadURL(reportUrl).catch(()=>{}); await sleep(2500); pageReady=true; }
         if(!netHooked){ try{ await rB.loadURL('about:blank'); }catch(e){} await installNetHook(rB); netHooked=true; }
-        await rB.loadURL(flygeUrl).catch(()=>{});
-        let f=null;
-        for(let i=0;i<12;i++){ await sleep(1200); try{ f=JSON.parse(await runPage(rB,pageFlyge)||'{}'); }catch(e){ f=null; } if(f&&f.ready) break; }
-        if(!f||!f.ready){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'飞鸽未加载'}); continue; }
+        let f=null, _flyReason='';
+        for(let attempt=0; attempt<2 && !(f&&f.ready); attempt++){
+          try{ await rB.loadURL(flygeUrl).catch(()=>{}); }catch(e){}
+          for(let i=0;i<18;i++){
+            await sleep(1000);
+            let info=null; try{ info=JSON.parse(await runPage(rB,pageFlygeInfo)||'{}'); }catch(e){}
+            if(info&&info.login){ _flyReason='login'; break; }
+            if(info&&info.ready){ try{ f=JSON.parse(await runPage(rB,pageFlyge)||'{}'); }catch(e){ f=null; } if(f&&f.ready) break; }
+          }
+          if(_flyReason==='login') break;
+        }
+        if(!f||!f.ready){
+          const _rs=(_flyReason==='login')?'飞鸽登录失效（需重新登录该店铺）':'飞鸽未加载';
+          if(_flyReason==='login'){ try{ await runPage(rB,pageFlygeInfo); }catch(e){} }
+          saveSkip(c.order_id, _flyReason==='login'?'飞鸽登录失效':'飞鸽未加载', shopName);
+          log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:_rs});
+          continue;
+        }
         // 飞鸽聊天明细落盘（买家+客服全量，含客服名），随每日任务上云
         let hist=[]; try{ hist=JSON.parse(await runPage(rB,pageReadHist)||'[]'); }catch(e){}
         try{ saveChat({order_id:c.order_id, shop:shopName, kind:c.kind, date:c.date||'',
