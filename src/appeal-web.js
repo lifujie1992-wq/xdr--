@@ -315,7 +315,7 @@ function detailCell(x){
     .filter(([,v])=>v).map(([k,v])=>k+' '+dshort(v)).join(' · ');
   if(_dl) kv.push(['日期线', _dl]);
   const ro='<div class="det">'+kv.map(([k,v])=>'<div class="detrow"><b>'+k+'</b><span>'+v+'</span></div>').join('')+'</div>';
-  const q=((x.status==='待核对') && !(x.__q && x.__q.status==='待核对'))?('<div class="hint" style="padding:6px 2px">该单暂不在核对队列（全量跑完、自动入队后即可在此确认）</div>'):'';
+  const q=((x.status==='待核对') && !(x.__q && x.__q.status==='待核对'))?('<div class="hint" style="padding:6px 2px">⏳ 等待入队：这不是「待你确认」的工单，AI 只是把它标成需人工看。下次跑批会自动收进核对队列，之后这里才会出现「确认提交」按钮。</div>'):'';
   return ro+q;
 }
 
