@@ -73,16 +73,21 @@ if n:
     try:
         subprocess.run(['/usr/bin/osascript','-e','display notification %s with title "店铺掉线提醒"' % json.dumps(msg, ensure_ascii=False)], timeout=10)
     except Exception: pass
-    # 可选 webhook
-    wf=os.path.join(app,'alert-webhook.txt')
+    # 可选 webhook（支持飞书机器人签名）
+    wf=os.path.join(app,'alert-webhook.json')
     if os.path.isfile(wf):
         try:
-            url=open(wf).read().strip()
+            import hashlib, hmac, base64
+            cfg=json.load(open(wf)); url=str(cfg.get('url') or '').strip(); secret=str(cfg.get('secret') or '').strip()
             if url:
-                payload=json.dumps({'msg_type':'text','content':{'text':'【店铺掉线】'+msg}}, ensure_ascii=False).encode()
-                req=urllib.request.Request(url, data=payload, headers={'Content-Type':'application/json'})
-                urllib.request.urlopen(req, timeout=10)
-                print('webhook 已发送')
+                payload={'msg_type':'text','content':{'text':'【店铺掉线】'+msg}}
+                if secret:
+                    ts=str(int(time.time()))
+                    dig=hmac.new((ts+'\n'+secret).encode('utf-8'), digestmod=hashlib.sha256).digest()
+                    payload['timestamp']=ts; payload['sign']=base64.b64encode(dig).decode('utf-8')
+                req=urllib.request.Request(url, data=json.dumps(payload, ensure_ascii=False).encode(), headers={'Content-Type':'application/json'})
+                r=urllib.request.urlopen(req, timeout=10)
+                print('webhook:', r.status, r.read().decode()[:100])
         except Exception as e: print('webhook 失败:', e)
 PY
 say "体检完成"
