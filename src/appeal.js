@@ -742,6 +742,23 @@ function createAppeal({store, jobs, app}){
         }
 
 
+      // 人工核对模式：把「需人工判断」的单直接写进核对队列（不再跳过），交由人工在工单里确认
+      const queueManual=(cc,shopName,why,sub,ff,llmInfo)=>{
+        const rank=cc.level||'中评', content=String(cc.content||'').slice(0,60);
+        const s=String(sub||'report_reason_evaluate_product_other_shop');
+        const LBL={'report_reason_fake_negative_comment':'评价等级为差评内容为好评','report_reason_evaluate_product_other_shop':'评价内容非交易商品或内容无意义','report_reason_wrong_size':'消费者买错型号','report_reason_low_politics_guns':'评价内容中包含辱骂或不当词汇','report_reason_negative_comment_compensation':'利用中差评骗赔','report_reason_business_evil_compete':'同行恶意竞争'};
+        const desc=buildReviewDesc({rank:rank,content:content,msgCount:(ff&&ff.buyer_count)||0,imgCount:(ff&&ff.buyer_imgs)||0,sub:s});
+        const q=loadQueue(); const qit=q.items[cc.order_id]||{};
+        q.items[cc.order_id]=Object.assign({}, qit, {
+          order_id:cc.order_id, shop:shopName, rank:rank, content:content, date:cc.date||'',
+          desc:desc, scene:'report_type_unusual_comment', sub:s, label:(LBL[s]||''),
+          recommend:null, preAudit:null, proofUrl:qit.proofUrl||null,
+          llmWhy:String(why||'')+' | AI:'+(((llmInfo||{}).why)||''),
+          status:(qit.status==='rejected')?'rejected':'pending', filledAt:new Date().toISOString()
+        });
+        saveQueue(q);
+        log({shop:shopName,order:cc.order_id,kind:cc.kind,result:'入核对队列',reason:'需人工核对',manualWhy:String(why||'')});
+      };
       for(const c of items){
        try{
         // ⓪pre 已确认(人工核对后)的单：严格按人工确认/修改后的最新内容提交，跳过飞鸽核查/大模型/预审，避免被飞鸽加载失败挡住
@@ -799,11 +816,13 @@ function createAppeal({store, jobs, app}){
           try{ llmInfo=await llmClassifyReview(c.level||'中评', c.content, f.buyer_msgs||[], (f.buyer_imgs>0), allowedOpts); }catch(e){ llmInfo={verdict:'uncertain'}; }
           revLLM=llmInfo;
           if(llmInfo.verdict==='quality_claim'){
+            if(reviewQueue){ queueManual(c,shopName,'需卖家提供质量证明',allowed[0],f,llmInfo); continue; }
             saveSkip(c.order_id,'需卖家提供质量证明',shopName);
             log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需卖家提供质量证明',detail:{llm:llmInfo,imgs:f.buyer_imgs,msgs:f.buyer_count}});
             continue;
           }
           if(llmInfo.verdict==='real_problem' && (f.buyer_imgs||0)>0){
+            if(reviewQueue){ queueManual(c,shopName,'需卖家提供质量证明（有图片证据）',allowed[0],f,llmInfo); continue; }
             saveSkip(c.order_id,'需卖家提供质量证明',shopName);
             log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需卖家提供质量证明（有图片证据）',detail:{llm:llmInfo,imgs:f.buyer_imgs,content:String(c.content||'').slice(0,60)}});
             continue;
@@ -821,6 +840,7 @@ function createAppeal({store, jobs, app}){
             const llmFailed=/大模型调用失败|大模型无结果|未配置|空响应/.test(String(llmInfo.why||''));
             const fb=llmFailed?pickReviewReason(c.content):null;
             if(!fb){
+              if(reviewQueue){ queueManual(c,shopName,'需人工介入·判断不确定',allowed[0],f,llmInfo); continue; }
               saveSkip(c.order_id,'需人工介入·判断不确定',shopName);
               log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'需人工介入·判断不确定',detail:{llm:llmInfo,content:String(c.content||'').slice(0,60)}});
               continue;
