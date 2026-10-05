@@ -417,7 +417,7 @@ function qEditBlock(x){
       ? '<button class="primary qa" data-oid="'+x.order_id+'" data-act="confirm">✅ 确认提交</button> <button class="qa" data-oid="'+x.order_id+'" data-act="reject">🚫 不举报</button>'
       : (x.status==='已确认' ? '<button class="qa" data-oid="'+x.order_id+'" data-act="reset">↩ 撤回确认</button>' : '');
     return '<div class="pair"><div class="hint"><b>'+esc(x.shop||'')+'</b> · <span class="mono">'+esc(x.order_id)+'</span> · '+esc(x.rank||'')+' · '+esc(x.date||'')+' · '+act+'</div>'
-      +'<div style="margin:6px 0">'+rec+pa+' <span class="hint">评价:'+esc(x.content||'')+'</span></div>'
+      +'<div style="margin:6px 0">'+rec+pa+' <span class="hint">'+(x.kind==='quality'?'售后:':'评价:')+esc(x.content||'')+'</span></div>'
       +(x.llmWhy?'<div class="hint">AI:'+esc(String(x.llmWhy).slice(0,90))+'</div>':'')
       +(x.goneReason?'<div class="hint">失效原因:'+esc(x.goneReason)+'</div>':'')
       +'<textarea id="qta_'+x.order_id+'" rows="2" style="width:100%;margin:6px 0;font:inherit">'+esc(x.desc||'')+'</textarea>'

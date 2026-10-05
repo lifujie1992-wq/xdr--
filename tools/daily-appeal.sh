@@ -25,7 +25,7 @@ case "$token" in *[!0-9a-f]*|'') say "token 无效"; exit 1;; esac
 
 payload="${SHOPDESK_APPEAL_PAYLOAD:-}"
 # 全部进「人工核对」队列：每天定时获取+分析+填充，人工在核对页确认后下一轮才提交
-if [ -z "$payload" ]; then payload='{"method":"auto_appeal_start","args":{"kinds":["reviews"],"submit":true,"reviewQueue":true}}'; fi
+if [ -z "$payload" ]; then payload='{"method":"auto_appeal_start","args":{"kinds":["quality","reviews"],"submit":true,"reviewQueue":true}}'; fi
 resp=$(printf 'header = "Authorization: Bearer %s"\n' "$token" | \
   /usr/bin/curl --config - --silent --show-error --max-time 900 --noproxy '*' \
   --header 'Content-Type: application/json' --header 'X-ShopDesk-Client: cron' \

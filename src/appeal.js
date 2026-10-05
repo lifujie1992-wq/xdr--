@@ -705,7 +705,7 @@ function createAppeal({store, jobs, app}){
     const byName=new Map((store.items||[]).map(s=>[s.name,s.id]));
     for(const it of Object.values(q.items||{})){
       if(!it || it.status!=='confirmed' || !it.order_id) continue;
-      out.push({order_id:String(it.order_id), kind:'review', shop:it.shop||'', shop_id:byName.get(it.shop)||'', level:it.rank||'中评', content:it.content||'', date:it.date||'', comment_date:it.date||''});
+      out.push({order_id:String(it.order_id), kind:(it.kind==='quality'?'quality':'review'), shop:it.shop||'', shop_id:byName.get(it.shop)||'', level:it.rank||'中评', content:it.content||'', date:it.date||'', comment_date:it.date||''});
     }
     return out;
   }
@@ -762,16 +762,20 @@ function createAppeal({store, jobs, app}){
       for(const c of items){
        try{
         // ⓪pre 已确认(人工核对后)的单：严格按人工确认/修改后的最新内容提交，跳过飞鸽核查/大模型/预审，避免被飞鸽加载失败挡住
-        const _qconf=(c.kind==='review')?((loadQueue().items||{})[c.order_id]||null):null;
+        const _qconf=((c.kind==='review'||c.kind==='quality'))?((loadQueue().items||{})[c.order_id]||null):null;
         if(reviewQueue && submit && _qconf && _qconf.status==='confirmed'){
           const cDesc=sanitizeDesc(_qconf.desc||'');
-          const cScene=_qconf.scene||'report_type_unusual_comment';
+          const cScene=_qconf.scene||(c.kind==='quality'?'report_type_unusual_after_sale':'report_type_unusual_comment');
           const cSub=_qconf.sub||'';
           let cCid=(ALLOWED[c.order_id]&&ALLOWED[c.order_id].comment_id)||'';
-          if(!cCid){ try{ const rc=JSON.parse(await runPage(rA,pageReviewCheck,{order:c.order_id,scene:cScene,sub:cSub})||'{}'); if(rc&&rc.comment_id) cCid=String(rc.comment_id); }catch(e){} }
+          if(c.kind!=='quality' && !cCid){ try{ const rc=JSON.parse(await runPage(rA,pageReviewCheck,{order:c.order_id,scene:cScene,sub:cSub})||'{}'); if(rc&&rc.comment_id) cCid=String(rc.comment_id); }catch(e){} }
           let cProof=[];
           if(_qconf.proofUrl){ try{ const tpl=JSON.parse(await runPage(rA,pageProofTemplate,{sub:cSub})||'{}'); if(tpl&&tpl.tpl_id) cProof=[{tpl_id:tpl.tpl_id,title:tpl.title||'',imageUrls:[_qconf.proofUrl]}]; }catch(e){} }
-          let apC={}; try{ apC=JSON.parse(await runPage(rA,pageReviewApply,{order:c.order_id,scene:cScene,sub:cSub,cid:cCid,desc:cDesc,proofInfos:cProof})||'{}'); }catch(e){ apC={error:String(e&&e.message||e)}; }
+          let apC={};
+          try{
+            if(c.kind==='quality'){ apC=JSON.parse(await runPage(rA,pageApplyNow,{order:c.order_id,scene:cScene,sub:cSub,desc:cDesc,proofs:(_qconf.proofUrl?[_qconf.proofUrl]:[])})||'{}'); }
+            else { apC=JSON.parse(await runPage(rA,pageReviewApply,{order:c.order_id,scene:cScene,sub:cSub,cid:cCid,desc:cDesc,proofInfos:cProof})||'{}'); }
+          }catch(e){ apC={error:String(e&&e.message||e)}; }
           let respC={}; try{ respC=JSON.parse(apC.resp||'{}'); }catch(e){ respC={}; }
           const okC=!!(respC&&respC.code===0&&respC.data&&respC.data.id);
           if(okC){ const q2=loadQueue(); if(q2.items[c.order_id]){ q2.items[c.order_id].status='submitted'; q2.items[c.order_id].submittedAt=new Date().toISOString(); saveQueue(q2); } }
@@ -911,16 +915,16 @@ function createAppeal({store, jobs, app}){
           }catch(e){ gate.preAuditErr=String(e&&e.message||e); }
         }
         // ④c 人工核对模式：中差评不自动提交，填充队列待人工确认；已确认的用确认内容继续走提交
-        const qit=(c.kind==='review')?(loadQueue().items[c.order_id]||null):null;
+        const qit=((c.kind==='review'||c.kind==='quality'))?(loadQueue().items[c.order_id]||null):null;
         // 预审通过率高（平台 report_success_rate.level==='high' 且理由匹配）→ 直接自动提交，跳过人工核对队列
         // 但你已驳回(rejected)的单绝不自动提交，尊重人工判断
         const highPreAudit=!!(autoSubmitHighPreAudit && gate.preAudit && gate.preAudit.level==='high' && gate.preAudit.matched!==false && !(qit && qit.status==='rejected'));
-        if(reviewQueue && c.kind==='review' && !highPreAudit && (!qit || (qit.status!=='confirmed' && qit.status!=='submitted'))){
+        if(reviewQueue && (c.kind==='review'||c.kind==='quality') && !highPreAudit && (!qit || (qit.status!=='confirmed' && qit.status!=='submitted'))){
           const q=loadQueue();
           q.items[c.order_id]=Object.assign({}, qit||{}, {
-            order_id:c.order_id, shop:shopName, rank:revRank||c.level||'',
-            content:String(revContent||c.content||'').slice(0,80), date:c.date||'',
-            desc:revDesc, scene:code.scene, sub:code.sub, label:(code&&code.label)||'',
+            order_id:c.order_id, kind:c.kind, shop:shopName, rank:revRank||c.level||'',
+            content:String(revContent||c.content||c.description||c.reason||'').slice(0,80), date:c.date||'',
+            desc:revDesc, scene:code.scene, sub:code.sub, label:(code&&code.label)||(c.kind==='quality'?'消费者选择的品质退货与事实不符':''),
             recommend:gate.recommend||null, preAudit:gate.preAudit||null, proofUrl:gate.proofUrl||null,
             llmWhy:(revLLM&&revLLM.why)||'',
             status:(qit&&qit.status==='rejected')?'rejected':'pending',
