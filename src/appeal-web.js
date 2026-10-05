@@ -222,13 +222,14 @@ function drawReview(){
 }
 let PAGE=1, F={status:'',kind:'',shop:'',q:'',from:'',to:'',scenario:''};
 const STATUSES=['已举报','举报成功','举报失败','不可举报','需转人工','未举报'];
-const USTATUSES=['待核对','已确认','已提交','举报成功','举报失败','不举报','未举报','需转人工'];
+const USTATUSES=['待核对','已确认','已提交','举报成功','举报失败','不举报','未举报'];
 function uniRows(){
   const qmap={}; for(const q of (QDATA.items||[])){ if(q&&q.order_id) qmap[q.order_id]=q; }
   const out=[], seen=new Set();
   for(const d of (DATA.items||[])){
     if(!d||!d.order_id) continue; seen.add(d.order_id);
     const q=qmap[d.order_id]; let st=d.status||'';
+    if(st==='需转人工') st='待核对';   // 与「待核对」语义重复，统一归到待核对
     if(q && (q.status==='待核对'||q.status==='已确认')) st=q.status;
     out.push(Object.assign({},d,{status:st,__q:q||null}));
   }
