@@ -789,11 +789,26 @@ function createAppeal({store, jobs, app}){
           const cSub=_qconf.sub||'';
           let cCid=(ALLOWED[c.order_id]&&ALLOWED[c.order_id].comment_id)||'';
           if(c.kind!=='quality' && !cCid){ try{ const rc=JSON.parse(await runPage(rA,pageReviewCheck,{order:c.order_id,scene:cScene,sub:cSub})||'{}'); if(rc&&rc.comment_id) cCid=String(rc.comment_id); }catch(e){} }
+          // 人工上传的凭证图 → 传到抖店，作为举报凭证（本地文件优先，否则从云端拉）
+          let cHuman=[];
+          try{
+            for(const im of (_qconf.images||[])){
+              if(!im) continue;
+              let b64='';
+              const lf=path.join(baseDir(),'appeal-reports','uploads',String(c.order_id),String(im.file||'').split('/').pop());
+              if(im.file && fs.existsSync(lf)){ b64=fs.readFileSync(lf).toString('base64'); }
+              else if(im.url){ try{ const rr=await fetch('https://erp.xiangduoer.com'+im.url,{cache:'no-store'}); if(rr.ok){ b64=Buffer.from(await rr.arrayBuffer()).toString('base64'); } }catch(e){} }
+              if(!b64) continue;
+              const up=JSON.parse(await runPage(rA,pageUploadImage,{b64,name:im.name||'proof.png'})||'{}');
+              if(up&&up.url) cHuman.push(up.url);
+            }
+          }catch(e){}
+          const allProofs=cHuman.concat(_qconf.proofUrl?[_qconf.proofUrl]:[]);
           let cProof=[];
-          if(_qconf.proofUrl){ try{ const tpl=JSON.parse(await runPage(rA,pageProofTemplate,{sub:cSub})||'{}'); if(tpl&&tpl.tpl_id) cProof=[{tpl_id:tpl.tpl_id,title:tpl.title||'',imageUrls:[_qconf.proofUrl]}]; }catch(e){} }
+          if(allProofs.length){ try{ const tpl=JSON.parse(await runPage(rA,pageProofTemplate,{sub:cSub})||'{}'); if(tpl&&tpl.tpl_id) cProof=[{tpl_id:tpl.tpl_id,title:tpl.title||'',imageUrls:allProofs}]; }catch(e){} }
           let apC={};
           try{
-            if(c.kind==='quality'){ apC=JSON.parse(await runPage(rA,pageApplyNow,{order:c.order_id,scene:cScene,sub:cSub,desc:cDesc,proofs:(_qconf.proofUrl?[_qconf.proofUrl]:[])})||'{}'); }
+            if(c.kind==='quality'){ apC=JSON.parse(await runPage(rA,pageApplyNow,{order:c.order_id,scene:cScene,sub:cSub,desc:cDesc,proofs:allProofs})||'{}'); }
             else { apC=JSON.parse(await runPage(rA,pageReviewApply,{order:c.order_id,scene:cScene,sub:cSub,cid:cCid,desc:cDesc,proofInfos:cProof})||'{}'); }
           }catch(e){ apC={error:String(e&&e.message||e)}; }
           let respC={}; try{ respC=JSON.parse(apC.resp||'{}'); }catch(e){ respC={}; }

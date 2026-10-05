@@ -62,6 +62,16 @@ tr.ldet td{background:#f8fafc;padding:0 12px 10px}
 .detrow{display:flex;gap:6px;max-width:100%}
 .detrow b{color:#64748b;font-weight:600;flex:none}
 .detrow span{white-space:pre-wrap}
+.att{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 6px}
+.attitem{position:relative;display:inline-block;width:64px;height:64px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#f8fafc;text-decoration:none}
+.attitem img{width:100%;height:100%;object-fit:cover;display:block}
+.attx{position:absolute;top:1px;right:1px;width:16px;height:16px;line-height:15px;text-align:center;background:rgba(15,23,42,.72);color:#fff;border-radius:50%;font-size:11px;cursor:pointer;font-weight:400}
+.atts,.atte{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;color:#64748b;background:#f1f5f9}
+.atte{color:#c0392b;background:#fdecea}
+.attbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0 6px}
+.attbtn{display:inline-flex;align-items:center;gap:4px;border:1px dashed #93c5fd;background:#eff6ff;color:#1d4ed8;border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer}
+.attbtn:hover{background:#dbeafe}
+.attbtn input{display:none}
 .pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:12px;flex-wrap:wrap}
 .pager button{padding:6px 12px;font-size:12px;background:#fff;border:1px solid #e2e8f0}
 .pager button:hover{background:#eff6ff;border-color:#93c5fd}
@@ -329,8 +339,10 @@ function drawList(){
       +'</tr>'
       +'<tr class="ldet'+((x.status==='待核对'||x.status==='已确认')?'':' hide')+'" data-of="'+esc(x.order_id)+'"><td colspan="8">'+detailCell(x)+'</td></tr>').join('')+'</tbody></table>';
   $('listwrap').querySelectorAll('tr.lrow').forEach(tr=>{ tr.onclick=()=>{ const d=$('listwrap').querySelector('tr.ldet[data-of="'+tr.dataset.o+'"]'); if(d) d.classList.toggle('hide'); }; });
-  // 展开行内的「核对」操作（改理由/文案、确认/驳回、撤回）
+  // 展开行/内联区内的「核对」操作（改理由/文案、传图、确认/驳回、撤回）
   $('listwrap').querySelectorAll('button.qa').forEach(b=>b.onclick=()=>queueAct(b.dataset.oid,b.dataset.act));
+  $('listwrap').querySelectorAll('input.qfile').forEach(inp=>inp.onchange=()=>onPickFiles(inp.dataset.oid,inp));
+  view.forEach(x=>{ if(x.__q && x.__q.status==='待核对'){ renderAtt(x.order_id); loadUploads(x.order_id); } });
   $('pager').innerHTML= size>0 && pages>1
     ? '<button data-pg="1">首页</button><button data-pg="'+(PAGE-1)+'">上一页</button><span class="hint">第 '+PAGE+' / '+pages+' 页 · 每页 '+size+' 条</span><button data-pg="'+(PAGE+1)+'">下一页</button><button data-pg="'+pages+'">末页</button>'
     : '<span class="hint">共 '+rows.length+' 条</span>';
@@ -426,7 +438,8 @@ function qEditBlock(x){
       +(x.llmWhy?'<div class="hint">AI:'+esc(String(x.llmWhy).slice(0,90))+'</div>':'')
       +(x.goneReason?'<div class="hint">失效原因:'+esc(x.goneReason)+'</div>':'')
       +'<textarea id="qta_'+x.order_id+'" rows="2" style="width:100%;margin:6px 0;font:inherit">'+esc(x.desc||'')+'</textarea>'
-      +'<div>'+sel+'</div></div>';
+      +'<div>'+sel+'</div>'
+      +attBlock(x)+'</div>';
 }
 function drawQueue(){
   if(!$('queuewrap')) return;
@@ -447,14 +460,74 @@ function drawQueue(){
   $('queuewrap').innerHTML=rows.map(x=>qEditBlock(x)).join('');
   $('queuewrap').querySelectorAll('button.qa').forEach(b=>b.onclick=()=>queueAct(b.dataset.oid,b.dataset.act));
 }
-async function queueAct(oid,action){
+/* ---------- 人工上传凭证图片（本地）---------- */
+const QIMG={}, QLOADING={}, QMAX=8, QMAXB=4*1024*1024;
+function fileToBase64(f){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]||'');r.onerror=()=>rej(new Error('读取文件失败'));r.readAsDataURL(f)})}
+function attEditor(oid){
+  return '<div class="att" id="qatt_'+oid+'"></div>'
+   +'<div class="attbar"><label class="attbtn">📎 上传凭证图片<input class="qfile" type="file" accept="image/*" multiple data-oid="'+oid+'"></label>'
+   +'<span class="hint">jpg/png/webp，单张 ≤4MB，最多 8 张；随「确认提交」一起交给提交任务。</span></div>';
+}
+function attReadonly(images){
+  if(!images||!images.length) return '';
+  return '<div class="att">'+images.map(im=>'<a class="attitem" href="'+esc(im.url)+'" target="_blank" rel="noopener" title="'+esc(im.name||'')+'"><img src="'+esc(im.url)+'" alt=""></a>').join('')+'<span class="hint">已随确认提交 '+images.length+' 张</span></div>';
+}
+const attBlock=x=>x.status==='待核对'?attEditor(x.order_id):attReadonly(x.images);
+function renderAtt(oid){
+  const el=$('qatt_'+oid); if(!el) return;
+  const list=QIMG[oid]||[];
+  el.innerHTML=list.map((im,i)=>{
+    const thumb=im.url?('<img src="'+esc(im.url)+'" alt="">'):'';
+    const st=im.status==='uploading'?'<span class="atts">上传中…</span>':(im.status==='error'?'<span class="atte">上传失败</span>':'');
+    return '<span class="attitem" title="'+esc(im.name||'')+'">'+thumb+st+'<b class="attx" data-oid="'+oid+'" data-i="'+i+'" title="移除">✕</b></span>';
+  }).join('');
+  el.querySelectorAll('.attx').forEach(b=>b.onclick=ev=>{ev.preventDefault();removeAtt(b.dataset.oid,Number(b.dataset.i))});
+}
+async function loadUploads(oid){
+  if(QIMG[oid]!==undefined||QLOADING[oid]) return;
+  QLOADING[oid]=1;
+  try{ const j=await fetch('/uploads?order_id='+encodeURIComponent(oid)).then(r=>r.json()); if(QIMG[oid]===undefined) QIMG[oid]=(j.images||[]).map(i=>Object.assign({},i,{status:'done'})); }
+  catch(e){ if(QIMG[oid]===undefined) QIMG[oid]=[]; }
+  delete QLOADING[oid]; renderAtt(oid);
+}
+async function removeAtt(oid,i){
+  const list=QIMG[oid]||[]; const im=list[i]; if(!im) return;
+  if(im.status==='done'&&im.file){ try{ await fetch('/upload/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:oid,file:im.file})}); }catch(e){} }
+  list.splice(i,1); renderAtt(oid);
+}
+async function onPickFiles(oid,input){
+  const files=[...(input.files||[])]; input.value='';
+  const list=QIMG[oid]=QIMG[oid]||[];
+  for(const f of files){
+    if(list.filter(i=>i.status!=='error').length>=QMAX){ alert('最多上传 '+QMAX+' 张图片'); break; }
+    if(!/^image\//.test(f.type||'')){ alert('只支持图片文件：'+f.name); continue; }
+    if(f.size>QMAXB){ alert('「'+f.name+'」超过 4MB，请压缩后再传'); continue; }
+    const item={name:f.name,mime:f.type,status:'uploading'}; list.push(item); renderAtt(oid);
+    try{
+      const data=await fileToBase64(f);
+      const j=await fetch('/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:oid,name:f.name,mime:f.type,data:data})}).then(r=>r.json());
+      if(!j.ok) throw new Error(j.error||'上传失败');
+      Object.assign(item,j.image,{status:'done'});
+    }catch(e){ item.status='error'; item.error=String((e&&e.message)||e); }
+    renderAtt(oid);
+  }
+}
+function queueAct(oid,action){
   const body={order_id:oid,action:action};
   const ta=$('qta_'+oid), sel=$('qsub_'+oid);
   if(ta) body.desc=ta.value;
   if(sel) body.sub=sel.value;
   if(sel){ const m=QREASONS.find(r=>r[0]===sel.value); if(m) body.label=m[1]; }
-  try{ await fetch('/queue/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }catch(e){}
-  await loadQueueData(); drawQueue();
+  if(action==='confirm'){
+    const list=QIMG[oid]||[];
+    if(list.some(i=>i.status==='uploading')){ alert('图片还在上传中，请稍候再点确认'); return; }
+    body.images=list.filter(i=>i.status==='done').map(i=>({file:i.file,name:i.name,mime:i.mime,size:i.size,url:i.url}));
+  }
+  return (async()=>{
+    try{ await fetch('/queue/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }catch(e){}
+    delete QIMG[oid];
+    await loadQueueData(); drawList(); drawQueue();
+  })();
 }
 async function loadQueueData(){ try{ QDATA=await fetch('/queue').then(r=>r.json()); }catch(e){} }
 function load(){Promise.all([fetch('/data').then(r=>r.json()),fetch('/stats').then(r=>r.json()),loadQueueData()]).then(([d,s])=>{DATA=d;STATS=s;draw()}).catch(()=>{})}
@@ -690,10 +763,66 @@ function createAppealWeb({app, appeal}){
     const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
     return '\uFEFF'+[head,...rows].map(r=>r.map(q).join(',')).join('\r\n');
   }
+  /* ---------- 本地人工上传凭证图片 ---------- */
+  const UPLOAD_DIR = () => path.join(reportsDir(), 'uploads');
+  const MAX_IMAGE_BYTES = 4*1024*1024, MAX_IMAGES_PER_ORDER = 8;
+  const MIME_EXT = {'image/jpeg':'.jpg','image/jpg':'.jpg','image/png':'.png','image/webp':'.webp','image/gif':'.gif','image/bmp':'.bmp','image/x-ms-bmp':'.bmp'};
+  const EXT_MIME = {'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp','.gif':'image/gif','.bmp':'image/bmp'};
+  function saveLocalImage(orderId, name, mime, data){
+    if(!/^\d{1,20}$/.test(String(orderId||''))) throw Error('order_id 不合法');
+    let b64=String(data||''); const m=/^data:([^;,]+);base64,(.*)$/s.exec(b64); if(m){ if(!mime) mime=m[1]; b64=m[2]; }
+    b64=b64.replace(/\s+/g,''); if(!b64) throw Error('empty image');
+    const buf=Buffer.from(b64,'base64'); if(!buf.length) throw Error('empty image');
+    if(buf.length>MAX_IMAGE_BYTES) throw Error('图片超过 '+Math.round(MAX_IMAGE_BYTES/1048576)+'MB');
+    mime=String(mime||'').toLowerCase();
+    if(!MIME_EXT[mime]){ const ext=path.extname(String(name||'')).toLowerCase(); if(!EXT_MIME[ext]) throw Error('只支持 jpg/png/webp/gif/bmp'); mime=EXT_MIME[ext]; }
+    const dir=path.join(UPLOAD_DIR(), String(orderId)); fs.mkdirSync(dir,{recursive:true});
+    const file=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8)+(MIME_EXT[mime]||'.jpg');
+    fs.writeFileSync(path.join(dir,file), buf); try{ fs.chmodSync(path.join(dir,file),0o600); }catch(e){}
+    return {order_id:String(orderId), file, name:String(name||file), mime, size:buf.length, url:'/uploads/'+orderId+'/'+file};
+  }
+  function listLocalImages(orderId){
+    const dir=path.join(UPLOAD_DIR(), String(orderId));
+    try{ return fs.readdirSync(dir).filter(f=>EXT_MIME[path.extname(f).toLowerCase()]).sort().map(f=>{ const st=fs.statSync(path.join(dir,f)); return {order_id:String(orderId), file:f, name:f, mime:EXT_MIME[path.extname(f).toLowerCase()], size:st.size, url:'/uploads/'+orderId+'/'+f}; }); }
+    catch(e){ return []; }
+  }
   function start(){
     if(server) return Promise.resolve(url());
     const handler=(req,res)=>{
       try{
+        // 人工上传凭证图片（本地存盘）
+        if(req.method==='POST' && req.url==='/upload'){
+          let raw=''; req.on('data',c=>{ raw+=c; if(raw.length>12e6) req.destroy(); });
+          req.on('end',()=>{ try{
+            const b=JSON.parse(raw||'{}');
+            if(listLocalImages(b.order_id).length>=MAX_IMAGES_PER_ORDER) throw Error('最多上传 '+MAX_IMAGES_PER_ORDER+' 张');
+            const img=saveLocalImage(b.order_id,b.name,b.mime,b.data);
+            res.setHeader('Content-Type','application/json;charset=utf-8'); res.end(JSON.stringify({ok:true,image:img}));
+          }catch(e){ res.statusCode=400; res.setHeader('Content-Type','application/json;charset=utf-8'); res.end(JSON.stringify({ok:false,error:String(e&&e.message||e)})); } });
+          return;
+        }
+        if(req.method==='POST' && req.url==='/upload/remove'){
+          let raw=''; req.on('data',c=>{ raw+=c; if(raw.length>1e5) req.destroy(); });
+          req.on('end',()=>{ try{
+            const b=JSON.parse(raw||'{}'); const file=String(b.file||'').split('/').pop();
+            if(!/^\d{1,20}$/.test(String(b.order_id||''))||!/^[A-Za-z0-9._-]+$/.test(file)) throw Error('bad file');
+            const dir=path.join(UPLOAD_DIR(),String(b.order_id)); const abs=path.join(dir,file);
+            if(!abs.startsWith(dir)) throw Error('bad file');
+            fs.rmSync(abs,{force:true});
+            res.setHeader('Content-Type','application/json;charset=utf-8'); res.end(JSON.stringify({ok:true}));
+          }catch(e){ res.statusCode=400; res.setHeader('Content-Type','application/json;charset=utf-8'); res.end(JSON.stringify({ok:false,error:String(e&&e.message||e)})); } });
+          return;
+        }
+        if(req.url.startsWith('/uploads?')){ const oid=new URL(req.url,'http://x').searchParams.get('order_id')||''; res.setHeader('Content-Type','application/json;charset=utf-8'); res.end(JSON.stringify({images:listLocalImages(oid)})); return }
+        if(req.url.startsWith('/uploads/')){
+          const parts=req.url.split('?')[0].split('/').filter(Boolean); const oid=parts[1]||'', file=parts[2]||'';
+          if(!/^\d{1,20}$/.test(oid)||!/^[A-Za-z0-9._-]+$/.test(file)){ res.statusCode=400; res.end('bad'); return }
+          const dir=path.join(UPLOAD_DIR(),oid); const abs=path.join(dir,file);
+          if(!abs.startsWith(dir)||!fs.existsSync(abs)){ res.statusCode=404; res.end('not found'); return }
+          res.setHeader('Content-Type', EXT_MIME[path.extname(file).toLowerCase()]||'application/octet-stream');
+          res.setHeader('Cache-Control','private,max-age=86400');
+          res.end(fs.readFileSync(abs)); return;
+        }
         if(req.method==='POST' && req.url==='/queue/update'){
           let raw=''; req.on('data',c=>{ raw+=c; if(raw.length>1e5) req.destroy(); });
           req.on('end',()=>{
@@ -704,7 +833,7 @@ function createAppealWeb({app, appeal}){
               let q={items:{}}; try{ q=JSON.parse(fs.readFileSync(f,'utf8')); if(!q.items) q.items={}; }catch(e){}
               const it=q.items[b.order_id];
               if(!it) throw Error('队列中无此单');
-              if(b.action==='confirm'){ it.status='confirmed'; if(b.desc) it.desc=String(b.desc).slice(0,200); if(b.sub) it.sub=String(b.sub); if(b.label) it.label=String(b.label); it.confirmedAt=new Date().toISOString(); }
+              if(b.action==='confirm'){ it.status='confirmed'; if(b.desc) it.desc=String(b.desc).slice(0,200); if(b.sub) it.sub=String(b.sub); if(b.label) it.label=String(b.label); if(Array.isArray(b.images)) it.images=b.images.slice(0,MAX_IMAGES_PER_ORDER); it.confirmedAt=new Date().toISOString(); }
               else if(b.action==='reject'){ it.status='rejected'; it.rejectedAt=new Date().toISOString(); }
               else if(b.action==='reset'){ it.status='pending'; }
               else if(b.desc||b.sub){ if(b.desc) it.desc=String(b.desc).slice(0,200); if(b.sub){ it.sub=String(b.sub); it.label=b.label?String(b.label):it.label; } }
