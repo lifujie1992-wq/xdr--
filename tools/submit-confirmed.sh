@@ -61,6 +61,7 @@ for it in items:
         'label':it.get('label') or cur.get('label'),
         'proofUrl':cur.get('proofUrl'),
         'status':'confirmed',
+        'images':(it.get('images') or cur.get('images') or []),
         'confirmedAt':it.get('confirmedAt') or cur.get('confirmedAt'),
         'cloudConfirmed':True,
     })

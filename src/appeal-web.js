@@ -500,7 +500,7 @@ async function onPickFiles(oid,input){
   const list=QIMG[oid]=QIMG[oid]||[];
   for(const f of files){
     if(list.filter(i=>i.status!=='error').length>=QMAX){ alert('最多上传 '+QMAX+' 张图片'); break; }
-    if(!/^image\//.test(f.type||'')){ alert('只支持图片文件：'+f.name); continue; }
+    if(String(f.type||'').indexOf('image/')!==0){ alert('只支持图片文件：'+f.name); continue; }
     if(f.size>QMAXB){ alert('「'+f.name+'」超过 4MB，请压缩后再传'); continue; }
     const item={name:f.name,mime:f.type,status:'uploading'}; list.push(item); renderAtt(oid);
     try{
