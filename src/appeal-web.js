@@ -292,7 +292,7 @@ function detailCell(x){
     ['日期线', '反馈 '+dshort(x.feedback_date||x.date)+' · 抓取 '+dshort(x.collected_at)+' · 操作 '+dshort(x.operated_at)+' · 提交 '+dshort(x.submitted_at)]
   ];
   const ro='<div class="det">'+kv.map(([k,v])=>'<div class="detrow"><b>'+k+'</b><span>'+v+'</span></div>').join('')+'</div>';
-  const q=(x.__q && x.__q.status==='待核对')?('<div class="qedit">'+qEditBlock(x.__q)+'</div>'):'';
+  const q=(x.__q && x.__q.status==='待核对')?('<div class="qedit">'+qEditBlock(x.__q)+'</div>'):((x.status==='待核对')?('<div class="hint" style="padding:6px 2px">该单暂不在核对队列（全量跑完、自动入队后即可在此确认）</div>'):'');
   return ro+q;
 }
 
@@ -302,7 +302,8 @@ function drawList(){
   drawScenarioSel(all);
   drawSeg();
   drawChips(filtered(true));
-  const rows=sortRows(filtered());
+  let rows=sortRows(filtered());
+  if(F.status==='待核对' && !SORT.field){ rows=rows.slice().sort((p,q)=>((q.__q?1:0)-(p.__q?1:0))); }  // 可确认的排前面
   const size=Number(($('fpage')&&$('fpage').value)||50);
   const pages=size>0?Math.max(1,Math.ceil(rows.length/size)):1;
   if(PAGE>pages) PAGE=pages; if(PAGE<1) PAGE=1;
