@@ -307,11 +307,13 @@ function drawScenarioSel(all){
 function detailCell(x){
   const kv=[
     ['场景', esc(x.scenario||'—')],
-    ['评价/售后', (x.kind==='品退')?esc(x.aftersale||x.reason||'—'):(esc(x.content||x.reason||'—')+(x.rank?('  （'+esc(x.rank)+'）'):''))],
-    ['举报原因', esc(x.report_reason||'—')],
-    ['申诉说明', esc(x.appeal_desc||x.desc||'—')],
-    ['日期线', '反馈 '+dshort(x.feedback_date||x.date)+' · 抓取 '+dshort(x.collected_at)+' · 操作 '+dshort(x.operated_at)+' · 提交 '+dshort(x.submitted_at)]
+    ['评价/售后', (x.kind==='品退')?esc(x.aftersale||x.reason||'—'):(esc(x.content||x.reason||'—')+(x.rank?('  （'+esc(x.rank)+'）'):''))]
   ];
+  if(x.report_reason) kv.push(['举报原因', esc(x.report_reason)]);
+  if(x.appeal_desc||x.desc) kv.push(['申诉说明', esc(x.appeal_desc||x.desc)]);
+  const _dl=[['反馈',x.feedback_date||x.date],['抓取',x.collected_at],['操作',x.operated_at],['提交',x.submitted_at]]
+    .filter(([,v])=>v).map(([k,v])=>k+' '+dshort(v)).join(' · ');
+  if(_dl) kv.push(['日期线', _dl]);
   const ro='<div class="det">'+kv.map(([k,v])=>'<div class="detrow"><b>'+k+'</b><span>'+v+'</span></div>').join('')+'</div>';
   const q=((x.status==='待核对') && !(x.__q && x.__q.status==='待核对'))?('<div class="hint" style="padding:6px 2px">该单暂不在核对队列（全量跑完、自动入队后即可在此确认）</div>'):'';
   return ro+q;
@@ -704,7 +706,7 @@ function createAppealWeb({app, appeal}){
           content:_content, aftersale:_aftersale, rank:String(r.rank||r.level||''),
           report_reason:_reportReason, appeal_desc:String(_rb.report_desc||r.report_desc||''),
           feedback_date:dd||'', collected_at:collectedAt[r.order_id]||'', operated_at:(e&&e.at)||'',
-          submitted_at:((lastSub[r.order_id]&&lastSub[r.order_id].at)||(e&&e.at)||''),
+          submitted_at:((lastSub[r.order_id]&&lastSub[r.order_id].at)||''),
           scenario:scenarioOf(label,_reportReason,_aftersale)});
       }
     }
