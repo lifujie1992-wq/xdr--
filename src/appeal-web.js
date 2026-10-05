@@ -671,6 +671,7 @@ function createAppealWeb({app, appeal}){
           else if(/无需举报/.test(rs)){ why='平台判定无需举报'; tags.push('无需举报'); }
           else if(/已举报过/.test(rs)){ why='该订单已有举报记录（平台一单一报）'; tags.push('已举报过'); }
           else if(/买家有沟通/.test(rs)){ why='买家与客服有过沟通，需人工查看聊天内容'; tags.push('买家有沟通'); }
+          else if(/飞鸽无会话权限/.test(rs)){ why='子账号缺「飞鸽客服-客服接待-基础接待」权限，读不到聊天记录；需主账号在 抖店-店铺-子账号管理 开通后再跑'; tags.push('需开通飞鸽权限'); }
           else if(/飞鸽登录失效/.test(rs)){ why='该店铺登录已失效，飞鸽打不开，需重新登录后再跑'; tags.push('需重新登录'); }
           else if(/飞鸽未加载/.test(rs)){ why='飞鸽页面未加载成功，需重试'; tags.push('待重试'); }
           else if(/未查到/.test(rs)){ why='平台查询未找到该单，需重试'; tags.push('待重试'); }
