@@ -459,6 +459,14 @@ function createAppealWeb({app, appeal}){
       return '中差评·其他';
     };
 
+    // 抓取日期：worklist 批次文件名里的时间戳，取该单首次出现的批次
+    const collectedAt={};
+    try{
+      const _fs=fs.readdirSync(dataDir()).filter(f=>/^(reviews-all-|appeal-worklist-quality_returns-|appeal-worklist-negative_reviews-).*\.json$/.test(f));
+      _fs.sort((a,b)=>{ const ta=(a.match(/(\d{8}-\d{6})/)||[])[1]||''; const tb=(b.match(/(\d{8}-\d{6})/)||[])[1]||''; return ta<tb?-1:(ta>tb?1:0); });
+      for(const f of _fs){ const m=f.match(/(\d{8})-(\d{6})/); if(!m) continue; const stamp=m[1].slice(0,4)+'-'+m[1].slice(4,6)+'-'+m[1].slice(6,8)+' '+m[2].slice(0,2)+':'+m[2].slice(2,4)+':'+m[2].slice(4,6); let arr=null; try{ arr=readJson(path.join(dataDir(),f)); }catch(e){} if(!Array.isArray(arr)) continue; for(const r of arr){ const oid=r&&r.order_id; if(oid && !collectedAt[oid]) collectedAt[oid]=stamp; } }
+    }catch(e){}
+
     // 转人工的具体理由（来自最新日志）
     const humanWhy=(e)=>{
       const dd=e.detail||{};
@@ -526,12 +534,14 @@ function createAppealWeb({app, appeal}){
         const _content=(label==='中差评')?String(r.content||r.reason||''):'';
         const _aftersale=(label==='品退')?String(r.reason||r.description||''):'';
         items.push({kind:label,shop:r.shop||'',order_id:r.order_id||'',reason:r.reason||r.content||'',date:dd||'',
-          desc:r.report_desc||'',status:status,why:why,tags:tags,submitted_at:(e&&e.at)||'',
+          desc:r.report_desc||'',status:status,why:why,tags:tags,
           product_name:r.product_name||'',product_id:r.product_id?String(r.product_id):'',
           submitter:(everSubmitted.has(r.order_id))?'AI提交':'',
           auditStatus:(av&&av.auditStatus!=null)?av.auditStatus:null, auditMsg:(av&&av.resultMsg)||'',
           content:_content, aftersale:_aftersale, rank:String(r.rank||r.level||''),
           report_reason:_reportReason, appeal_desc:String(_rb.report_desc||r.report_desc||''),
+          feedback_date:dd||'', collected_at:collectedAt[r.order_id]||'', operated_at:(e&&e.at)||'',
+          submitted_at:((lastSub[r.order_id]&&lastSub[r.order_id].at)||(e&&e.at)||''),
           scenario:scenarioOf(label,_reportReason,_aftersale)});
       }
     }
@@ -542,10 +552,12 @@ function createAppealWeb({app, appeal}){
       const _rr=REASON_LABEL[v.sub]||String(v.sub||'');
       items.push({kind:_k,shop:v.shop||'',order_id:oid,reason:v.sub||'',
         date:(v.created||'').slice(0,10),desc:'',status:auditOf(oid),why:(auditOf(oid)==='举报失败')?('平台拒绝理由：'+String(v.resultMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0]):'已提交举报（平台审核中）',
-        tags:auditTags(oid),submitted_at:v.created||'',submitter:'AI提交',
+        tags:auditTags(oid),submitter:'AI提交',
         product_name:'',product_id:'',
         auditStatus:(v.auditStatus!=null?v.auditStatus:null),auditMsg:v.resultMsg||'',
-        content:'',aftersale:'',rank:'',report_reason:_rr,appeal_desc:'',scenario:scenarioOf(_k,_rr,'')});
+        content:'',aftersale:'',rank:'',report_reason:_rr,appeal_desc:'',
+        feedback_date:(v.created||'').slice(0,10),collected_at:collectedAt[oid]||'',operated_at:'',submitted_at:v.created||'',
+        scenario:scenarioOf(_k,_rr,'')});
     }
     return {generated_at:new Date().toISOString(), _results:results, count:items.length,
       items};
