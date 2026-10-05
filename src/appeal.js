@@ -693,7 +693,7 @@ function createAppeal({store, jobs, app}){
     return out;
   }
 
-  async function processShop(shopId, shopName, items, submit, log, reviewQueue){
+  async function processShop(shopId, shopName, items, submit, log, reviewQueue, autoSubmitHighPreAudit){
     const ses = session.fromPartition('persist:shop-'+shopId);
     const mk=()=>{const w=new BrowserWindow({show:false,width:1280,height:900,webPreferences:{...secure,session:ses,backgroundThrottling:false}});w.webContents.setWindowOpenHandler(()=>({action:'deny'}));return w;};
     const wA=mk(), wB=mk();
@@ -856,7 +856,9 @@ function createAppeal({store, jobs, app}){
         }
         // ④c 人工核对模式：中差评不自动提交，填充队列待人工确认；已确认的用确认内容继续走提交
         const qit=(c.kind==='review')?(loadQueue().items[c.order_id]||null):null;
-        if(reviewQueue && c.kind==='review' && (!qit || (qit.status!=='confirmed' && qit.status!=='submitted'))){
+        // 预审通过率高（平台 report_success_rate.level==='high' 且理由匹配）→ 直接自动提交，跳过人工核对队列
+        const highPreAudit=!!(autoSubmitHighPreAudit && gate.preAudit && gate.preAudit.level==='high' && gate.preAudit.matched!==false);
+        if(reviewQueue && c.kind==='review' && !highPreAudit && (!qit || (qit.status!=='confirmed' && qit.status!=='submitted'))){
           const q=loadQueue();
           q.items[c.order_id]=Object.assign({}, qit||{}, {
             order_id:c.order_id, shop:shopName, rank:revRank||c.level||'',
@@ -902,13 +904,13 @@ function createAppeal({store, jobs, app}){
           try{ const has=await orderHasReport(rB,c.order_id); if(has){ r.alreadyReported=has; saveSkip(c.order_id,'已举报过',shopName); } }catch(e){}
         }
         if(!r.submitted && (r.why==='不可举报'||r.why==='无需举报')) saveSkip(c.order_id,r.why,shopName);
-        log({shop:shopName,order:c.order_id,kind:c.kind,result: r.submitted?'已提交':(r.skipped?'跳过':'未提交'),reason: r.submitted?'':(r.skipped||r.reason||r.error||''),detail:r});
+        log({shop:shopName,order:c.order_id,kind:c.kind,result: r.submitted?'已提交':(r.skipped?'跳过':'未提交'),reason: r.submitted?'':(r.skipped||r.reason||r.error||''),via: highPreAudit?'预审高通过率自动提交':undefined,detail:r});
        }catch(err){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'未提交',reason:'异常:'+String(err&&err.message||err)}); }
       }
     } finally { if(!wA.isDestroyed()) wA.destroy(); if(!wB.isDestroyed()) wB.destroy(); }
   }
 
-  async function flow(kinds, submit, shopIds, maxPerShop, recheck, log, reviewQueue){
+  async function flow(kinds, submit, shopIds, maxPerShop, recheck, log, reviewQueue, autoSubmitHighPreAudit){
     try{
       if(!state.skipSync){ try{ log({step:'同步平台举报记录'}); const sr=await syncResults({days:30,pages:6}); log({step:'同步完成', 订单:sr&&sr.count}); }catch(e){} } else { log({step:'跳过同步（skipSync）'}); }
       if(reviewQueue){ const q=loadQueue(); const c=Object.values(q.items).filter(x=>x.status==='confirmed').length, p=Object.values(q.items).filter(x=>x.status==='pending').length; log({step:'核对队列', 待确认提交:c, 待人工核对:p}); }
@@ -920,7 +922,7 @@ function createAppeal({store, jobs, app}){
       const groups = new Map();
       for(const c of target){ if(!groups.has(c.shop_id)) groups.set(c.shop_id,{name:c.shop,items:[]}); groups.get(c.shop_id).items.push(c); }
       const shopList=[...groups]; let cursor=0; const CONC=4;   // 店铺并发（每家会开 2 个窗口，4 家=8 个窗口）
-      const worker=async()=>{ while(cursor<shopList.length){ const [shopId,g]=shopList[cursor++]; const items=maxPerShop>0?g.items.slice(0,maxPerShop):g.items; log({step:'处理店铺', shop:g.name, count:items.length, 共:g.items.length}); await processShop(shopId, g.name, items, submit, log, reviewQueue); } };
+      const worker=async()=>{ while(cursor<shopList.length){ const [shopId,g]=shopList[cursor++]; const items=maxPerShop>0?g.items.slice(0,maxPerShop):g.items; log({step:'处理店铺', shop:g.name, count:items.length, 共:g.items.length}); await processShop(shopId, g.name, items, submit, log, reviewQueue, autoSubmitHighPreAudit); } };
       await Promise.all(Array.from({length:Math.min(CONC,shopList.length)},worker));
     }catch(e){ log({step:'异常', error:String(e.message||e)}); }
     state.running=false; state.finishedAt=new Date().toISOString();
@@ -937,12 +939,12 @@ function createAppeal({store, jobs, app}){
     persist();
   }
 
-  function run({kinds=['quality','reviews'], submit=true, shopIds=null, maxPerShop=0, recheck=false, skipSync=false, reviewQueue=false}={}){
+  function run({kinds=['quality','reviews'], submit=true, shopIds=null, maxPerShop=0, recheck=false, skipSync=false, reviewQueue=false, autoSubmitHighPreAudit=true}={}){
     if(state.running) return {error:'已有自动申诉任务在运行', id:state.id};
     const _skip=!!skipSync;
     state = {id:String(Date.now()), running:true, log:[], startedAt:new Date().toISOString(), finishedAt:null, summary:null, reportFile:null, skipSync:_skip, reviewQueue:!!reviewQueue};
     const log = e => { state.log.push({at:new Date().toISOString(), ...e}); persist(); };
-    flow(kinds, submit, shopIds, maxPerShop, recheck, log, !!reviewQueue);   // 后台执行，不阻塞
+    flow(kinds, submit, shopIds, maxPerShop, recheck, log, !!reviewQueue, autoSubmitHighPreAudit!==false);   // 后台执行，不阻塞
     return {id:state.id, started:true};
   }
 
