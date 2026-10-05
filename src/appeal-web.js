@@ -47,6 +47,17 @@ table.list td .sub{color:#94a3b8;font-size:11px}
 table.list td.why{font-size:12px;line-height:1.5;white-space:normal;color:#475569}
 table.list td.tags .badge{margin:1px 2px 1px 0;font-size:10px;padding:2px 6px}
 .tag{white-space:nowrap;display:inline-block}
+.tag.scn{background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:10px;padding:1px 7px;font-size:11px}
+table.list col.c11{width:132px}
+.list td.dates{white-space:normal;font-size:11px;line-height:1.55;color:#64748b}
+.list td.dates span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tr.lrow{cursor:pointer}
+tr.lrow:hover{background:#f8fafc}
+tr.ldet td{background:#f8fafc;padding:0 12px 10px}
+.det{display:flex;flex-wrap:wrap;gap:8px 28px;font-size:12px;color:#334155;padding:8px 2px;border-top:1px dashed #e2e8f0}
+.detrow{display:flex;gap:6px;max-width:100%}
+.detrow b{color:#64748b;font-weight:600;flex:none}
+.detrow span{white-space:pre-wrap}
 .pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:12px;flex-wrap:wrap}
 .pager button{padding:6px 12px;font-size:12px;background:#fff;border:1px solid #e2e8f0}
 .pager button:hover{background:#eff6ff;border-color:#93c5fd}
@@ -134,6 +145,7 @@ h2{font-size:14px;margin:22px 0 10px}
       <div class="chips" id="chips"></div>
       <div class="frow">
         <div class="seg" id="fkindSeg"></div>
+        <select id="fscenario" title="场景（哪种情况的申诉）"><option value="">全部场景</option></select>
         <select id="fshop" title="店铺"></select>
         <select id="frange">
           <option value="">全部时间</option><option value="1">今天</option><option value="7">近 7 天</option>
@@ -141,6 +153,7 @@ h2{font-size:14px;margin:22px 0 10px}
         </select>
         <span id="fcustom" class="hide"><input id="fd1" type="date" title="开始"><span class="hint">~</span><input id="fd2" type="date" title="结束"></span>
         <input id="fq" placeholder="🔍 搜索订单号 / 商品 / 店铺">
+        <span class="hint">排序</span><select id="fsort"><option value="">默认</option><option value="date">负反馈日期</option><option value="collected_at">抓取日期</option><option value="operated_at">操作日期</option><option value="submitted_at">提交日期</option></select><button type="button" id="fdir" class="sg">↓ 降序</button>
       </div>
       <div class="fmeta">
         <span id="fcount" class="hint"></span>
@@ -184,9 +197,27 @@ function drawBoss(){
    +'<h2>店铺对比（含近30天趋势）</h2>'+shopTable(b.byShop,b)
    +'<h2>按举报原因的成功率</h2>'+reasonTable(STATS.review.byReason);
 }
+let RF={kind:'',shop:''};
+function rRows(){ return (STATS.review.rows||[]).filter(x=>{ if(RF.kind && x.kind!==RF.kind) return false; if(RF.shop && x.shop!==RF.shop) return false; return true; }); }
+function rAgg(rows){ const m={}; for(const x of rows){ const k=x.submitReason||'(未知)'; const g=m[k]||(m[k]={ai:{s:0,p:0,r:0},hm:{s:0,p:0,r:0}}); const b=(x.submitter==='人工')?g.hm:g.ai; b.s++; if(x.auditStatus===6)b.p++; else if(x.auditStatus===3)b.r++; } return m; }
+function rateOf(p,r){ return (p+r)?Math.round(p/(p+r)*100)+'%':'—'; }
+function splitTable(){
+  const m=rAgg(rRows());
+  const keys=Object.keys(m).sort((a,b)=>(m[b].ai.s+m[b].hm.s)-(m[a].ai.s+m[a].hm.s));
+  if(!keys.length) return '<div class="empty">暂无提交记录。</div>';
+  return '<table><thead><tr><th>场景 / 举报原因</th><th>提交合计</th><th>人工提交</th><th>人工通过</th><th>人工驳回</th><th>人工通过率</th><th>AI提交</th><th>AI通过</th><th>AI驳回</th><th>AI通过率</th></tr></thead><tbody>'
+   +keys.map(k=>{ const g=m[k]; return '<tr><td>'+esc(k)+'</td><td><b>'+(g.ai.s+g.hm.s)+'</b></td>'
+     +'<td>'+g.hm.s+'</td><td class="okc">'+g.hm.p+'</td><td class="rej">'+g.hm.r+'</td><td>'+rateOf(g.hm.p,g.hm.r)+'</td>'
+     +'<td>'+g.ai.s+'</td><td class="okc">'+g.ai.p+'</td><td class="rej">'+g.ai.r+'</td><td>'+rateOf(g.ai.p,g.ai.r)+'</td></tr>'; }).join('')
+   +'</tbody></table>';
+}
+function drawRKind(){ const el=$('rkind'); if(!el) return; el.value=RF.kind||''; el.onchange=()=>{ RF.kind=el.value; drawReview(); }; }
+function drawRShop(){ const el=$('rshop'); if(!el) return; const m={}; for(const x of (STATS.review.rows||[])){ if(x.shop) m[x.shop]=(m[x.shop]||0)+1; } el.innerHTML='<option value="">全部店铺 ('+Object.keys(m).length+')</option>'+Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([k,v])=>'<option'+(RF.shop===k?' selected':'')+' value="'+esc(k)+'">'+esc(k)+' ('+v+')</option>').join(''); el.onchange=()=>{ RF.shop=el.value; drawReview(); }; }
 function drawReview(){
   const r=STATS.review;
   $('review').innerHTML='<p class="hint">把「你提交的说明 + 选的举报原因」和「平台审核结果 + 驳回理由」并排看，找规律。</p>'
+   +'<div class="frow" style="margin:6px 0 10px"><span class="hint">类型</span><select id="rkind"><option value="">全部</option><option value="品退">品退</option><option value="中差评">中差评</option></select><span class="hint">店铺</span><select id="rshop" style="min-width:220px"></select></div>'
+   +'<h2>按场景 × 人工 / AI <span class="hint">（通过率 = 通过 ÷（通过 + 驳回），不含审核中）</span></h2>'+splitTable()
    +'<h2>按举报原因的成功率</h2>'+reasonTable(r.byReason)
    +'<h2>驳回原因 TOP</h2>'+rejTopTable()
    +'<h2>逐条复盘（近 '+r.rows.length+' 条提交）</h2>'
@@ -199,15 +230,20 @@ function drawReview(){
         +'<div class="row2"><div class="col"><h3>订单原始情况（买家选的）</h3><pre>'+esc(x.buyerReason||'（无）')+'</pre></div>'
         +'<div class="col"><h3>平台审核结果</h3>'+box+'</div></div></div>';
    }).join('');
+  drawRKind(); drawRShop();
 }
-let PAGE=1, F={status:'',kind:'',shop:'',q:'',from:'',to:''};
+let PAGE=1, F={status:'',kind:'',shop:'',q:'',from:'',to:'',scenario:''};
 const STATUSES=['已举报','举报成功','举报失败','不可举报','需转人工','未举报'];
+let SORT={field:'',dir:'desc'};
+const dshort=s=>{ s=String(s||''); if(!s) return '—'; const m=s.match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}))?/); return m?(m[2]+'-'+m[3]+(m[4]?(' '+m[4]):'')):s.slice(0,16); };
+function sortRows(rows){ if(!SORT.field) return rows; const k=SORT.field, sgn=(SORT.dir==='asc')?1:-1; return rows.slice().sort((a,b)=>{ const av=String(a[k]||''), bv=String(b[k]||''); if(!av&&!bv) return 0; if(!av) return 1; if(!bv) return -1; return av<bv?-sgn:(av>bv?sgn:0); }); }
 function CounterOf(rows){ const c={}; for(const x of rows){ c[x.status]=(c[x.status]||0)+1; } return c; }
 function filtered(skipStatus){
   return DATA.items.filter(x=>{
     if(!x.status) return false;
     if(!skipStatus && F.status && x.status!==F.status) return false;
     if(F.kind && x.kind!==F.kind) return false;
+    if(F.scenario && (x.scenario||'')!==F.scenario) return false;
     if(F.shop && (x.shop||'')!==F.shop) return false;
     if(F.q){ const hay=((x.shop||'')+' '+(x.order_id||'')+' '+(x.product_name||'')+' '+(x.product_id||'')+' '+(x.why||'')).toLowerCase(); if(hay.indexOf(F.q)<0) return false; }
     const d=String(x.date||'').slice(0,10);
@@ -235,29 +271,51 @@ function drawSeg(){
   $('fkindSeg').innerHTML=['','品退','中差评'].map(k=>'<button class="sg'+((F.kind===k||(k===''&&!F.kind))?' on':'')+'" data-k="'+k+'">'+(k||'全部')+'</button>').join('');
   $('fkindSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ F.kind=b.dataset.k; PAGE=1; drawSeg(); drawList(); });
 }
+function drawScenarioSel(all){
+  const sel=$('fscenario'); if(!sel) return;
+  const m={}; for(const x of all){ if(x.scenario) m[x.scenario]=(m[x.scenario]||0)+1; }
+  const keys=Object.keys(m).sort((a,b)=>m[b]-m[a]);
+  sel.innerHTML='<option value="">全部场景 ('+keys.length+')</option>'
+    +keys.map(k=>'<option'+(F.scenario===k?' selected':'')+' value="'+esc(k)+'">'+esc(k)+' ('+m[k]+')</option>').join('');
+}
+function detailCell(x){
+  const kv=[
+    ['场景', esc(x.scenario||'—')],
+    ['评价/售后', (x.kind==='品退')?esc(x.aftersale||x.reason||'—'):(esc(x.content||x.reason||'—')+(x.rank?('  （'+esc(x.rank)+'）'):''))],
+    ['举报原因', esc(x.report_reason||'—')],
+    ['申诉说明', esc(x.appeal_desc||x.desc||'—')],
+    ['日期线', '反馈 '+dshort(x.feedback_date||x.date)+' · 抓取 '+dshort(x.collected_at)+' · 操作 '+dshort(x.operated_at)+' · 提交 '+dshort(x.submitted_at)]
+  ];
+  return '<div class="det">'+kv.map(([k,v])=>'<div class="detrow"><b>'+k+'</b><span>'+v+'</span></div>').join('')+'</div>';
+}
 
 function drawList(){
   const all=DATA.items;
   if(!$('fshop').options.length) drawShopSel(all);
+  drawScenarioSel(all);
   drawSeg();
   drawChips(filtered(true));
-  const rows=filtered();
+  const rows=sortRows(filtered());
   const size=Number(($('fpage')&&$('fpage').value)||50);
   const pages=size>0?Math.max(1,Math.ceil(rows.length/size)):1;
   if(PAGE>pages) PAGE=pages; if(PAGE<1) PAGE=1;
   const view=size>0?rows.slice((PAGE-1)*size,PAGE*size):rows;
   $('fcount').textContent='共 '+rows.length+' 条';
   if(!rows.length){ $('listwrap').innerHTML='<div class="empty">没有符合条件的记录。</div>'; $('pager').innerHTML=''; return }
-  $('listwrap').innerHTML='<table class="list"><colgroup><col class="c1"><col class="c4"><col class="c2"><col class="c5"><col class="c9"><col class="c10"></colgroup>'
-   +'<thead><tr><th>店铺 / 类型 / 日期</th><th>订单号 / 商品</th><th>状态</th><th>状态原因</th><th>提交人</th><th>审核结果</th></tr></thead><tbody>'
-   +view.map(x=>'<tr>'
-      +'<td class="shopcell"><b>'+esc(x.shop)+'</b><br>'+kindBd(x.kind)+' <span class="sub">'+esc(x.date)+'</span></td>'
+  $('listwrap').innerHTML='<table class="list"><colgroup><col class="c1"><col class="c11"><col class="c4"><col class="c2"><col class="c5"><col class="c9"><col class="c10"></colgroup>'
+   +'<thead><tr><th>店铺 / 类型 / 日期</th><th>日期线</th><th>订单号 / 商品</th><th>状态</th><th>状态原因</th><th>提交人</th><th>审核结果</th></tr></thead><tbody>'
+   +view.map(x=>'<tr class="lrow" data-o="'+esc(x.order_id)+'">'
+      +'<td class="shopcell"><b>'+esc(x.shop)+'</b><br>'+kindBd(x.kind)+' <span class="sub">'+esc(x.date)+'</span>'+(x.scenario?' <span class="tag scn">'+esc(x.scenario)+'</span>':'')+'</td>'
+      +'<td class="dates" title="负反馈 '+(x.feedback_date||x.date||'—')+' | 抓取 '+(x.collected_at||'—')+' | 操作 '+(x.operated_at||'—')+' | 提交 '+(x.submitted_at||'—')+'">'
+        +'<span>反馈 '+dshort(x.feedback_date||x.date)+'</span><span>抓取 '+dshort(x.collected_at)+'</span><span>操作 '+dshort(x.operated_at)+'</span><span>提交 '+dshort(x.submitted_at)+'</span></td>'
       +'<td class="ordcell"><span class="mono">'+esc(x.order_id)+'</span><br><span class="sub">'+esc(x.product_name||'')+'</span>'+(x.product_id?'<span class="sub"> · 编码 '+esc(x.product_id)+'</span>':'')+'</td>'
       +'<td>'+badge(x.status)+'</td>'
       +'<td class="why" title="'+esc(x.why||'')+'">'+esc(x.why||'—')+'</td>'
       +'<td>'+(x.submitter?'<span class="tag">'+esc(x.submitter)+'</span>':'')+'</td>'
       +auditCell(x)
-      +'</tr>').join('')+'</tbody></table>';
+      +'</tr>'
+      +'<tr class="ldet hide" data-of="'+esc(x.order_id)+'"><td colspan="7">'+detailCell(x)+'</td></tr>').join('')+'</tbody></table>';
+  $('listwrap').querySelectorAll('tr.lrow').forEach(tr=>{ tr.onclick=()=>{ const d=$('listwrap').querySelector('tr.ldet[data-of="'+tr.dataset.o+'"]'); if(d) d.classList.toggle('hide'); }; });
   $('pager').innerHTML= size>0 && pages>1
     ? '<button data-pg="1">首页</button><button data-pg="'+(PAGE-1)+'">上一页</button><span class="hint">第 '+PAGE+' / '+pages+' 页 · 每页 '+size+' 条</span><button data-pg="'+(PAGE+1)+'">下一页</button><button data-pg="'+pages+'">末页</button>'
     : '<span class="hint">共 '+rows.length+' 条</span>';
@@ -395,12 +453,15 @@ function applyRange(){
 }
 function bindFilters(){
   $('fshop').onchange=()=>{ F.shop=$('fshop').value; PAGE=1; drawList(); };
+  if($('fscenario')) $('fscenario').onchange=()=>{ F.scenario=$('fscenario').value; PAGE=1; drawList(); };
+  if($('fsort')) $('fsort').onchange=()=>{ SORT.field=$('fsort').value; PAGE=1; drawList(); };
+  if($('fdir')) $('fdir').onclick=()=>{ SORT.dir=(SORT.dir==='desc')?'asc':'desc'; $('fdir').textContent=(SORT.dir==='desc')?'↓ 降序':'↑ 升序'; PAGE=1; drawList(); };
   $('frange').onchange=()=>{ applyRange(); };
   $('fd1').onchange=$('fd2').onchange=()=>{ F.from=$('fd1').value; F.to=$('fd2').value; PAGE=1; drawList(); };
   $('fq').oninput=()=>{ F.q=$('fq').value.trim().toLowerCase(); PAGE=1; drawList(); };
   $('qq').oninput=()=>{ QF.q=$('qq').value.trim().toLowerCase(); drawQueue(); };
   $('fpage').onchange=()=>{ PAGE=1; drawList(); };
-  $('clearf').onclick=()=>{ F={status:'',kind:'',shop:'',q:'',from:'',to:''}; $('fq').value=''; $('frange').value=''; $('fcustom').classList.add('hide'); PAGE=1; drawList(); };
+  $('clearf').onclick=()=>{ F={status:'',kind:'',shop:'',q:'',from:'',to:'',scenario:''}; $('fq').value=''; $('frange').value=''; if($('fscenario')) $('fscenario').value=''; $('fcustom').classList.add('hide'); PAGE=1; drawList(); };
 }
 load(); bindFilters(); setInterval(load,30000);
 load();setInterval(load,30000);
