@@ -183,7 +183,7 @@ const RESULTS=(typeof DATA!=='undefined'&&DATA&&DATA._results)||{};
 function auditState(oid){const v=RESULTS&&RESULTS[oid];if(!v)return null;const a=v.auditStatus;if(a===6)return '已通过';if(a===3)return '已驳回';return '举报中';}
 function kindBd(k){return '<span class="kindbd '+(k==='品退'?'kd-q':'kd-r')+'">'+esc(k||'—')+'</span>'}
 function badge(s){const M={'已举报':'st-doing','举报成功':'st-ok','举报失败':'st-no','不可举报':'st-no','需转人工':'st-human','未处理':'st-todo'};const c=M[s]||'st-human';return '<span class="st '+c+'">'+esc(s||'—')+'</span>'}
-function auditCell(x){const tip=esc((x.auditMsg||'').replace(/\s+/g,' ').slice(0,200));if(!/^(已举报|举报成功|举报失败)$/.test(x.status||''))return '<td></td>';if(x.auditStatus===3)return '<td class="rej" title="'+tip+'">❌ 平台拒绝：'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0])+'</td>';if(x.auditStatus===6)return '<td class="okc">✅ 审核通过</td>';if(x.auditStatus==null)return '<td class="wait">平台记录待同步</td>';return '<td class="wait">审核中</td>'}
+function auditCell(x){const tip=esc((x.auditMsg||'').replace(/\\s+/g,' ').slice(0,200));if(!/^(已举报|举报成功|举报失败)$/.test(x.status||''))return '<td></td>';if(x.auditStatus===3)return '<td class="rej" title="'+tip+'">❌ 平台拒绝：'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0])+'</td>';if(x.auditStatus===6)return '<td class="okc">✅ 审核通过</td>';if(x.auditStatus==null)return '<td class="wait">平台记录待同步</td>';return '<td class="wait">审核中</td>'}
 function drawTabs(){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===TAB));['ops','boss','review','list'].forEach(t=>$(t).classList.toggle('hide',t!==TAB))}
 function drawOps(){
   const o=STATS.ops;
@@ -230,8 +230,8 @@ function drawReview(){
    +'<h2>逐条复盘（近 '+r.rows.length+' 条提交）</h2>'
    + r.rows.slice().reverse().map(x=>{
       const rej=x.auditStatus===3, ok=x.auditStatus===6;
-      const box=ok?'<div class="okbox"><b>✅ 审核通过</b><pre>'+esc((x.auditMsg||'').replace(/;平台建议[\s\S]*/,''))+'</pre></div>'
-        :rej?'<div class="rejbox"><b>❌ 驳回</b><pre>'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').replace(/;平台建议[\s\S]*/,''))+'</pre></div>'
+      const box=ok?'<div class="okbox"><b>✅ 审核通过</b><pre>'+esc((x.auditMsg||'').replace(/;平台建议[\\s\\S]*/,''))+'</pre></div>'
+        :rej?'<div class="rejbox"><b>❌ 驳回</b><pre>'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').replace(/;平台建议[\\s\\S]*/,''))+'</pre></div>'
         :'<div class="wait">审核中 / 待同步</div>';
       return '<div class="pair"><div class="hint">'+esc(x.shop||'')+' · <span class="mono">'+esc(x.order_id)+'</span> · '+esc((x.at||'').slice(0,16).replace('T',' '))+' · <span class="tag">'+esc(x.submitReason||x.kind||'')+'</span></div>'
         +'<div class="row2"><div class="col"><h3>订单原始情况（买家选的）</h3><pre>'+esc(x.buyerReason||'（无）')+'</pre></div>'
@@ -261,7 +261,7 @@ function uniRows(){
   return out;
 }
 let SORT={field:'',dir:'desc'};
-const dshort=s=>{ s=String(s||''); if(!s) return '—'; const m=s.match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}))?/); return m?(m[2]+'-'+m[3]+(m[4]?(' '+m[4]):'')):s.slice(0,16); };
+const dshort=s=>{ s=String(s||''); if(!s) return '—'; const m=s.match(/(\\d{4})-(\\d{2})-(\\d{2})(?:[ T](\\d{2}:\\d{2}))?/); return m?(m[2]+'-'+m[3]+(m[4]?(' '+m[4]):'')):s.slice(0,16); };
 function sortRows(rows){ if(!SORT.field) return rows; const k=SORT.field, sgn=(SORT.dir==='asc')?1:-1; return rows.slice().sort((a,b)=>{ const av=String(a[k]||''), bv=String(b[k]||''); if(!av&&!bv) return 0; if(!av) return 1; if(!bv) return -1; return av<bv?-sgn:(av>bv?sgn:0); }); }
 function CounterOf(rows){ const c={}; for(const x of rows){ const k=uStatus(x); c[k]=(c[k]||0)+1; } return c; }
 function filtered(skipStatus){
