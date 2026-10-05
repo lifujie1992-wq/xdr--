@@ -277,7 +277,7 @@ def _fetch_detail(s, after_sale_id):
         raise ValueError('售后详情被平台拒绝')
     return payload
 
-def fetch_quality_returns(item, span=None, max_pages=20, page_size=50, max_details=25, detail_workers=5):
+def fetch_quality_returns(item, span=None, max_pages=20, page_size=50, max_details=200, detail_workers=5):
     """扫描品退：售后原因为品质类，且售后说明为空、无任何买家图片/视频凭证。"""
     if span is None:
         span = span_since(item.get('since'))
