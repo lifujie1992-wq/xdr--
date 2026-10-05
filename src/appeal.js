@@ -582,6 +582,13 @@ function buildReviewDesc(o){
   const mpart = (mc>0)
     ? ('经核查飞鸽聊天记录，买家自下单至评价期间仅与客服有 '+mc+' 条沟通'+((imgs>0)?('（含图片 '+imgs+' 张）'):'')+'，均为咨询/物流类无效沟通，未反馈任何商品质量问题，未提供有效证明')
     : '经核查飞鸽聊天记录，买家自下单至评价期间未与客服有过任何沟通（0 条消息），未提供任何有效证明';
+  // 「内容为好评、等级却是中差评」：投诉理由围绕这个矛盾点写
+  if(o.sub==='report_reason_fake_negative_comment' && content){
+    return ('买家'+cpart+'，通篇均为对商品的正面好评，未指出任何商品或服务问题，但买家给出的评价等级却是'+rank+'，'
+          +'评价内容与评价等级明显不符，属于“内容为好评、等级却是中差评”的异常评价；'
+          +'未上传商品问题图片或视频，未提供任何有效证明；'+mpart+'，未反馈任何商品或服务问题。'
+          +'申请剔除该评价，不参与店铺体验分统计。');
+  }
   return ('买家给出'+rank+'，'+cpart+'，未上传商品问题图片或视频，未提供有效证明；'+mpart+'，未反馈任何商品或服务问题。'+
           '该评价缺乏事实依据，属于异常评价，申请剔除该评价，不参与店铺体验分统计。');
 }
@@ -845,7 +852,7 @@ function createAppeal({store, jobs, app}){
 
         // ④ 接口提交（不再点页面）
         if(!submit){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'演练模式(未提交)',detail:{content:String(revContent||c.content||'').slice(0,60),label:(code&&code.label)||'',llm:revLLM,shots:shots.length,status:status}}); continue; }
-        const revDesc=sanitizeDesc(c.kind==='review'?buildReviewDesc({rank:revRank,content:revContent,msgCount:(f&&f.buyer_count)||0,imgCount:(f&&f.buyer_imgs)||0}):buildQualityDesc({reason:c.reason,desc:c.description,msgCount:(f&&f.buyer_count)||0}));
+        const revDesc=sanitizeDesc(c.kind==='review'?buildReviewDesc({rank:revRank,content:revContent,msgCount:(f&&f.buyer_count)||0,imgCount:(f&&f.buyer_imgs)||0,sub:code&&code.sub}):buildQualityDesc({reason:c.reason,desc:c.description,msgCount:(f&&f.buyer_count)||0}));
         const gate={};
         // ④a- 上传飞鸽聊天截图作为凭证（预审与提交都用）
         let proofs={images:[],videos:[]};
