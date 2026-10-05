@@ -320,7 +320,7 @@ function drawList(){
       +'<td>'+(x.submitter?'<span class="tag">'+esc(x.submitter)+'</span>':'')+'</td>'
       +auditCell(x)
       +'</tr>'
-      +'<tr class="ldet hide" data-of="'+esc(x.order_id)+'"><td colspan="7">'+detailCell(x)+'</td></tr>').join('')+'</tbody></table>';
+      +'<tr class="ldet'+((x.status==='待核对'||x.status==='已确认')?'':' hide')+'" data-of="'+esc(x.order_id)+'"><td colspan="7">'+detailCell(x)+'</td></tr>').join('')+'</tbody></table>';
   $('listwrap').querySelectorAll('tr.lrow').forEach(tr=>{ tr.onclick=()=>{ const d=$('listwrap').querySelector('tr.ldet[data-of="'+tr.dataset.o+'"]'); if(d) d.classList.toggle('hide'); }; });
   // 展开行内的「核对」操作（改理由/文案、确认/驳回、撤回）
   $('listwrap').querySelectorAll('tr.ldet button.qa').forEach(b=>b.onclick=()=>queueAct(b.dataset.oid,b.dataset.act));
