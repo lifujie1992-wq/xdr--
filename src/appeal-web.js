@@ -241,14 +241,16 @@ function drawReview(){
 }
 let PAGE=1, F={status:'',kind:'',shop:'',q:'',from:'',to:'',scenario:''};
 const STATUSES=['已举报','举报成功','举报失败','不可举报','需转人工','未举报'];
-const USTATUSES=['待核对','已确认','已提交','举报成功','举报失败','不举报','未举报'];
+const USTATUSES=['待核对','已确认','审核中','举报成功','举报失败','不可举报','未处理'];
+const USTATUS_DESC={'待核对':'需要人工核对/确认后才提交','已确认':'已人工确认，等待本地执行提交','审核中':'已提交平台，等待审核结果','举报成功':'平台审核通过（差评率已剔除）','举报失败':'平台驳回','不可举报':'平台判定不能报（含无需举报），已放弃','未处理':'系统还没处理过'};
+const uStatus=x=>{ let st=String((x&&x.status)||''); if(st==='需转人工') st='待核对'; if(st==='已举报'||st==='已提交'||st==='待同步') st='审核中'; if(st==='未举报') st='未处理'; if(st==='不举报') st='不可举报'; return st; };
 function uniRows(){
   const qmap={}; for(const q of (QDATA.items||[])){ if(q&&q.order_id) qmap[q.order_id]=q; }
   const out=[], seen=new Set();
   for(const d of (DATA.items||[])){
     if(!d||!d.order_id) continue; seen.add(d.order_id);
     const q=qmap[d.order_id]; let st=d.status||'';
-    if(st==='需转人工') st='待核对';   // 与「待核对」语义重复，统一归到待核对
+    st=uStatus({status:st});
     if(q && (q.status==='待核对'||q.status==='已确认')) st=q.status;
     out.push(Object.assign({},d,{status:st,__q:q||null}));
   }
@@ -261,11 +263,11 @@ function uniRows(){
 let SORT={field:'',dir:'desc'};
 const dshort=s=>{ s=String(s||''); if(!s) return '—'; const m=s.match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}))?/); return m?(m[2]+'-'+m[3]+(m[4]?(' '+m[4]):'')):s.slice(0,16); };
 function sortRows(rows){ if(!SORT.field) return rows; const k=SORT.field, sgn=(SORT.dir==='asc')?1:-1; return rows.slice().sort((a,b)=>{ const av=String(a[k]||''), bv=String(b[k]||''); if(!av&&!bv) return 0; if(!av) return 1; if(!bv) return -1; return av<bv?-sgn:(av>bv?sgn:0); }); }
-function CounterOf(rows){ const c={}; for(const x of rows){ c[x.status]=(c[x.status]||0)+1; } return c; }
+function CounterOf(rows){ const c={}; for(const x of rows){ const k=uStatus(x); c[k]=(c[k]||0)+1; } return c; }
 function filtered(skipStatus){
   return uniRows().filter(x=>{
     if(!x.status) return false;
-    if(!skipStatus && F.status && x.status!==F.status) return false;
+    if(!skipStatus && F.status && uStatus(x)!==F.status) return false;
     if(F.kind && x.kind!==F.kind) return false;
     if(F.scenario && (x.scenario||'')!==F.scenario) return false;
     if(F.shop && (x.shop||'')!==F.shop) return false;
@@ -281,7 +283,7 @@ function drawChips(all){
   el.innerHTML=['全部'].concat(USTATUSES).map(k=>{
     const n=(k==='全部')?all.length:(c[k]||0);
     if(k!=='全部'&&!n) return '';
-    return '<button class="chip'+(F.status===k||(k==='全部'&&!F.status)?' on':'')+'" data-st="'+k+'">'+k+'<i>'+n+'</i></button>';
+    return '<button class="chip'+(F.status===k||(k==='全部'&&!F.status)?' on':'')+'" data-st="'+k+'" title="'+esc(USTATUS_DESC[k]||'全部记录')+'">'+k+'<i>'+n+'</i></button>';
   }).join('');
   el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ F.status=(b.dataset.st==='全部')?'':b.dataset.st; PAGE=1; drawList(); });
 }
@@ -672,7 +674,7 @@ function createAppealWeb({app, appeal}){
         }
         // 平台有记录 → 覆盖为平台事实
         const av=results[r.order_id];
-        let status='未举报';
+        let status='未处理';
         if(av){
           // 平台审核结果出来后：清掉预检/跳过阶段的旧标签和旧 why，以平台事实为准（标签清洗）
           status=auditOf(r.order_id);
@@ -687,6 +689,7 @@ function createAppealWeb({app, appeal}){
         if(!av && !(e&&e.result==='已提交') && tags.some(t=>/^(需人工介入|需卖家提供质量证明|待重试)$/.test(t))) status='需转人工';
         if(status==='需转人工' && !tags.some(t=>t==='需转人工')) tags.unshift('需转人工');
         if(status==='需转人工') tags.unshift('需转人工');
+        if(status==='未处理' && tags.some(t=>/^(不可举报|无需举报)$/.test(t))) status='不可举报';
         const _sub=lastSub[r.order_id];
         const _rb=(_sub&&_sub.detail&&_sub.detail.reqBody)||{};
         const _reportReason=String((_sub&&_sub.detail&&_sub.detail.reasonLabel)||'')||REASON_LABEL[_rb.sub_scene_type]||'';
