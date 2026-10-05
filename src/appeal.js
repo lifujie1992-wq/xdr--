@@ -857,7 +857,8 @@ function createAppeal({store, jobs, app}){
         // ④c 人工核对模式：中差评不自动提交，填充队列待人工确认；已确认的用确认内容继续走提交
         const qit=(c.kind==='review')?(loadQueue().items[c.order_id]||null):null;
         // 预审通过率高（平台 report_success_rate.level==='high' 且理由匹配）→ 直接自动提交，跳过人工核对队列
-        const highPreAudit=!!(autoSubmitHighPreAudit && gate.preAudit && gate.preAudit.level==='high' && gate.preAudit.matched!==false);
+        // 但你已驳回(rejected)的单绝不自动提交，尊重人工判断
+        const highPreAudit=!!(autoSubmitHighPreAudit && gate.preAudit && gate.preAudit.level==='high' && gate.preAudit.matched!==false && !(qit && qit.status==='rejected'));
         if(reviewQueue && c.kind==='review' && !highPreAudit && (!qit || (qit.status!=='confirmed' && qit.status!=='submitted'))){
           const q=loadQueue();
           q.items[c.order_id]=Object.assign({}, qit||{}, {
