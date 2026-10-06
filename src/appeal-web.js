@@ -64,6 +64,7 @@ tr.ldet td{background:#f8fafc;padding:0 12px 10px}
 .detrow span{white-space:pre-wrap}
 .qinline{display:flex;flex-direction:column;gap:5px;max-width:620px}
 .qinline .qhint{font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qinline .qhint2{font-size:11px;color:#475569;white-space:normal;line-height:1.5}
 .qinline textarea{width:100%;margin:0;font:12px/1.5 inherit;padding:6px 8px;border:1px solid #dbe2ea;border-radius:6px;resize:vertical}
 .qrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .list td.ops{vertical-align:top;padding-top:10px!important}
@@ -132,6 +133,14 @@ h2{font-size:14px;margin:22px 0 10px}
 .pair pre{white-space:pre-wrap;font:12px/1.7 -apple-system,"PingFang SC",sans-serif;margin:0;color:#33415c}
 .pair .rejbox{background:#fdf4f3;border:1px solid #f2d3d0;border-radius:8px;padding:10px}
 .pair .okbox{background:#eefaf4;border:1px solid #cfe9de;border-radius:8px;padding:10px}
+
+.qinline{display:flex;flex-direction:column;gap:5px;max-width:620px}
+.qinline .qhint{font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qinline .qhint2{font-size:11px;color:#475569;white-space:normal;line-height:1.5}
+.qinline textarea{width:100%;margin:0;font:12px/1.5 inherit;padding:6px 8px;border:1px solid #dbe2ea;border-radius:6px;resize:vertical}
+.qrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+table.list col.c5{width:auto}
+table.list col.c12{width:620px}
 </style></head><body>
 <header>
   <h1>申诉工作台</h1>
@@ -314,6 +323,12 @@ function detailCell(x){
   const _dl=[['反馈',x.feedback_date||x.date],['抓取',x.collected_at],['操作',x.operated_at],['提交',x.submitted_at]]
     .filter(([,v])=>v).map(([k,v])=>k+' '+dshort(v)).join(' · ');
   if(_dl) kv.push(['日期线', _dl]);
+  if(x.kind==='品退'){
+    if(x.aftersale_desc) kv.push(['售后说明', esc(x.aftersale_desc)]);
+    kv.push(['上传图片', (x.has_media===1)?'有':((x.has_media===0)?'无':'未知')]);
+    const _cb=Number(x.chat_buyer||0), _ct=Number(x.chat_total||0);
+    kv.push(['飞鸽聊天', _ct?('共 '+_ct+' 条'+(x.chat_imgs?('（图 '+x.chat_imgs+' 张）'):'')+((_cb>0)?'':'(买家未发言)')+(x.chat_agents?(' ｜ 客服：'+esc(x.chat_agents)):'')):'无聊天记录']);
+  }
   const ro='<div class="det">'+kv.map(([k,v])=>'<div class="detrow"><b>'+k+'</b><span>'+v+'</span></div>').join('')+'</div>';
   const q=((x.status==='待核对') && !(x.__q && x.__q.status==='待核对'))?('<div class="hint" style="padding:6px 2px">⏳ 等待入队：这不是「待你确认」的工单，AI 只是把它标成需人工看。下次跑批会自动收进核对队列，之后这里才会出现「确认提交」按钮。</div>'):'';
   return ro+q;
@@ -436,19 +451,44 @@ function qFiltered(){
     return true;
   });
 }
+/* 按举报理由预置的投诉文案：人在「核对」页点确认时，提交给本地定时任务的就是这里的内容。
+   目标是把理由说到点子上，而不是套一句笼统的「未提供有效证明」。 */
+const QTPL={
+  report_reason_fake_negative_comment:x=>'买家评价内容为“'+(x.content||'')+'”，通篇都是正面评价，认可商品本身，没有任何关于商品质量、服务或物流的负面描述，也没有提供任何能够证明商品存在问题的图片或视频；但买家最终给出的却是'+(x.rank||'中差评')+'。该评价属于“内容是好评、等级却是中差评”，评价等级与评价内容明显不符，评价内容本身并没有反映任何真实的负面体验，恳请平台核实该评价等级与内容不一致的情况，按「评价等级为差评内容为好评」处理。'
+};
+const qTpl=(x,sub)=>{ const f=QTPL[String(sub||'')]; return (x&&f)?f(x):''; };
+// 「内容是好评」得站得住才自动套用：要有正向词，且去掉「不会起球 / 不掉色 / 没让我失望」这类否定式之后
+// 没有明显负向词。判断不了就保留 AI 原稿（理由下拉下面仍留 ✨ 按钮，人工确认过可以手动套用）。
+const QTPLPOS=/(很好|好穿|好看|好评|不错|喜欢|满意|值得|推荐|舒服|漂亮|回购|合适|标准|精细|超值|物有所值|赞|绝了|可以|还行|很棒|质感|显瘦|出彩|恰到好处|比例)/;
+const QTPLNEG=/(点错|退款|退货|退来退去|旧衣|很旧|面料不好|不行|不好|垃圾|失望|色差|起球|掉色|线头|瑕疵|一般|偏大|偏小|易邹|邹|皱|太薄|太透|偏硬|味道)/;
+function qTplOk(x,sub){
+  if(String(sub||'')!=='report_reason_fake_negative_comment') return true;
+  const s=String((x&&x.content)||'');
+  if(!QTPLPOS.test(s)) return false;
+  const neg=s.replace(/不(会|掉|褪|起)[^\\s，,。；;、]{0,4}/g,'').replace(/没(让我|有)?失望/g,'').replace(/没(什么|有)?挑剔/g,'');
+  return !QTPLNEG.test(neg);
+}
+// 待核对 + 有预置文案 + 内容确实像好评 → 默认就用预置文案；其余情况沿用本地推来的 AI 原稿
+const qDesc=(x,sub)=>{ const t=qTpl(x,sub); return (qStatus(x)==='待核对'&&t&&qTplOk(x,sub))?t:(x.desc||''); };
 function qEditBlock(x){
   const rec=(x.recommend&&x.recommend.is_match)?('<span class="tag">平台推荐:'+esc(x.recommend.sub_scene_type_name||'')+'</span>'):'';
   const pa=x.preAudit?('<span class="tag" style="background:'+(x.preAudit.level==='low'?'#fdeceb;color:#c0392b':'#e9f7f0;color:#1f7a55')+'">预审:'+(x.preAudit.level||'?')+'</span>'):'';
   const sel='<select id="qsub_'+x.order_id+'" style="max-width:230px">'+QREASONS.map(r=>'<option value="'+r[0]+'"'+(r[0]===x.sub?' selected':'')+'>'+esc(r[1])+'</option>').join('')+'</select>';
-  const st=x.status;
+  const st=qStatus(x);
   const act = st==='待核对'
     ? '<button class="primary qa" data-oid="'+x.order_id+'" data-act="confirm">✅ 确认提交</button> <button class="qa" data-oid="'+x.order_id+'" data-act="reject">🚫 不举报</button>'
-    : (st==='已确认' ? '<button class="qa" data-oid="'+x.order_id+'" data-act="reset">↩ 撤回确认</button>' : '');
-  const tplBar = (st==='待核对' && x.kind!=='quality') ? '<a class="lnk" data-tpl="'+x.order_id+'">✨ 套用预置文案</a> · <a class="lnk" data-ai="'+x.order_id+'">↺ AI 原稿</a>' : '';
-  return '<div class="qinline">'
-    +'<div class="qhint" title="'+esc(x.content||'')+'">'+(x.kind==='quality'?'售后：':'评价：')+esc(x.content||'—')+(rec||pa?' '+rec+pa:'')+'</div>'
-    +'<textarea id="qta_'+x.order_id+'" rows="2">'+esc(x.desc||'')+'</textarea>'
-    +'<div class="qrow">'+sel+(tplBar?('<span class="hint">'+tplBar+'</span>'):'')+'</div>'
+    : (x.execPending
+        ? '<button class="qa" data-oid="'+x.order_id+'" data-act="reset">↩ 撤回'+esc(st)+'</button>'
+        : (st==='已确认' ? '<button class="qa" data-oid="'+x.order_id+'" data-act="reset">↩ 撤回确认</button>' : ''));
+  const tplBar = (st==='待核对' && x.kind!=='quality') ? '<span class="hint"><a class="lnk" data-tpl="'+x.order_id+'">✨ 套用预置文案</a> · <a class="lnk" data-ai="'+x.order_id+'">↺ AI 原稿</a></span>' : '';
+  const head = (x.kind==='quality')
+    ? ('<div class="qhint">售后：'+esc(x.content||'—')+((rec||pa)?(' '+rec+pa):'')+'</div>'
+       +'<div class="qhint2">说明：'+esc(x.aftersale_desc||'—')+' ｜ 图片：'+((x.has_media===1)?'有':((x.has_media===0)?'无':'?'))+' ｜ 飞鸽：'+((Number(x.chat_total||0))?('共'+x.chat_total+'条'+(x.chat_imgs?('（含图'+x.chat_imgs+'）'):'')+((Number(x.chat_buyer||0)===0)?'(买家未发言)':'')):'无聊天记录')+'</div>')
+    : ('<div class="qhint" title="'+esc(x.content||'')+'">评价：'+esc(x.content||'—')+((rec||pa)?(' '+rec+pa):'')+'</div>');
+  return '<div class="qinline">'+head
+    +(x.execPending?'<div class="qhint2">⏳ 云端已确认，等本地执行</div>':'')
+    +'<textarea id="qta_'+x.order_id+'" rows="2">'+esc(qDesc(x,x.sub))+'</textarea>'
+    +'<div class="qrow">'+sel+tplBar+'</div>'
     +'<div class="qrow">'+act+'</div>'
     +attBlock(x)
     +'</div>';
@@ -631,6 +671,10 @@ function createAppealWeb({app, appeal}){
       for(const f of _fs){ const m=f.match(/(\d{8})-(\d{6})/); if(!m) continue; const stamp=m[1].slice(0,4)+'-'+m[1].slice(4,6)+'-'+m[1].slice(6,8)+' '+m[2].slice(0,2)+':'+m[2].slice(2,4)+':'+m[2].slice(4,6); let arr=null; try{ arr=readJson(path.join(dataDir(),f)); }catch(e){} if(!Array.isArray(arr)) continue; for(const r of arr){ const oid=r&&r.order_id; if(oid && !collectedAt[oid]) collectedAt[oid]=stamp; } }
     }catch(e){}
 
+    // 飞鸽聊天明细（买家有没有聊天/发图/客服名）
+    const chatMap={};
+    try{ const cd=readJson(path.join(reportsDir(),'chat-detail-latest.json'))||{}; for(const oid in cd){ const v=cd[oid]||{}; chatMap[oid]={buyer:Number(v.buyer_count||0), total:Number(v.msg_total||0), imgs:Number(v.buyer_imgs||0), agents:(v.agents||[]).join('、')}; } }catch(e){}
+
     // 转人工的具体理由（来自最新日志）
     const humanWhy=(e)=>{
       const dd=e.detail||{};
@@ -706,6 +750,10 @@ function createAppealWeb({app, appeal}){
           submitter:(everSubmitted.has(r.order_id))?'AI提交':'',
           auditStatus:(av&&av.auditStatus!=null)?av.auditStatus:null, auditMsg:(av&&av.resultMsg)||'',
           content:_content, aftersale:_aftersale, rank:String(r.rank||r.level||''),
+          aftersale_desc:(label==='品退')?String(r.description||''):'',
+          has_media:(label==='品退')?((r.has_media===true)?1:((r.has_media===false)?0:null)):null,
+          chat_buyer:(chatMap[r.order_id]||{}).buyer, chat_total:(chatMap[r.order_id]||{}).total,
+          chat_imgs:(chatMap[r.order_id]||{}).imgs, chat_agents:(chatMap[r.order_id]||{}).agents||'',
           report_reason:_reportReason, appeal_desc:String(_rb.report_desc||r.report_desc||''),
           feedback_date:dd||'', collected_at:collectedAt[r.order_id]||'', operated_at:(e&&e.at)||'',
           submitted_at:((lastSub[r.order_id]&&lastSub[r.order_id].at)||''),

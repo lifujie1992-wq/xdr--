@@ -990,6 +990,9 @@ function createAppeal({store, jobs, app}){
           q.items[c.order_id]=Object.assign({}, qit||{}, {
             order_id:c.order_id, kind:c.kind, shop:shopName, rank:revRank||c.level||'',
             content:String(revContent||c.content||c.description||c.reason||'').slice(0,80), date:c.date||'',
+            aftersale_desc:(c.kind==='quality')?String(c.description||''):'',
+            has_media:(c.kind==='quality')?((c.has_media===true)?1:((c.has_media===false)?0:null)):null,
+            chat_buyer:Number((f&&f.buyer_count)||0), chat_total:Number((f&&f.total)||0), chat_imgs:Number((f&&f.buyer_imgs)||0), chat_agents:((f&&f.agents)||[]).join('、'),
             desc:revDesc, scene:code.scene, sub:code.sub, label:(code&&code.label)||(c.kind==='quality'?'消费者选择的品质退货与事实不符':''),
             recommend:gate.recommend||null, preAudit:gate.preAudit||null, proofUrl:gate.proofUrl||null,
             llmWhy:(revLLM&&revLLM.why)||'',
