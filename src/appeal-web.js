@@ -252,6 +252,7 @@ let PAGE=1, F={status:'',kind:'',shop:'',q:'',from:'',to:'',scenario:''};
 const STATUSES=['已举报','举报成功','举报失败','不可举报','需转人工','未举报'];
 const USTATUSES=['待核对','已确认','审核中','举报成功','举报失败','不可举报','未处理'];
 const USTATUS_DESC={'待核对':'需要人工核对/确认后才提交','已确认':'已人工确认，等待本地执行提交','审核中':'已提交平台，等待审核结果','举报成功':'平台审核通过（差评率已剔除）','举报失败':'平台驳回','不可举报':'平台判定不能报（含无需举报），已放弃','未处理':'系统还没处理过'};
+const qStatus=x=>String((x&&x.status)||'').replace(/（待本地执行）$/,'');
 const uStatus=x=>{ let st=String((x&&x.status)||''); if(st==='需转人工') st='待核对'; if(st==='已举报'||st==='已提交'||st==='待同步') st='审核中'; if(st==='未举报') st='未处理'; if(st==='不举报') st='不可举报'; return st; };
 function uniRows(){
   const qmap={}; for(const q of (QDATA.items||[])){ if(q&&q.order_id) qmap[q.order_id]=q; }
