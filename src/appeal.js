@@ -692,7 +692,8 @@ function createAppeal({store, jobs, app}){
     // 1) 平台确认已有举报记录的订单（results.json）
     try{ const rf=readJson(path.join(reportsDir(),'results.json')); if(rf&&rf.map) for(const oid of Object.keys(rf.map)) m.add(oid); }catch(e){}
     // 2) 跳过类（不可举报/无需举报）；recheck=true 时不排除，重新去平台核一遍
-    if(!recheck){ try{ const sk=loadSkips(); for(const o of Object.keys(sk)) m.add(o); }catch(e){}
+    // 只有平台铁定的终态才排除；「飞鸽未加载 / 无会话权限 / 需人工介入 / 待重试」这类临时失败要允许重跑
+    if(!recheck){ try{ const sk=loadSkips(); for(const o in sk){ const rs=String((sk[o]||{}).reason||''); if(/不可举报|无需举报|已举报过/.test(rs)) m.add(o); } }catch(e){}
       // 平台一个订单只能举报一次：只要历史日志里出现过"已提交"，就永久跳过
       try{ for(const f of fs.readdirSync(reportsDir()).filter(x=>x.endsWith('.json')&&x!=='results.json'&&x!=='skipped.json')){ const rep=readJson(path.join(reportsDir(),f)); for(const e of (rep&&rep.log)||[]){ if(!e.order||e.result!=='已提交') continue; const dd=e.detail||{};
           const real = (dd.applyResp&&dd.applyResp.data&&dd.applyResp.data.id) || dd.reportId;   // 拿不到举报ID的视为未成功
