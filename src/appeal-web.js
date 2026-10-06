@@ -176,7 +176,7 @@ table.list col.c12{width:620px}
         <a id="clearf" class="lnk">清空筛选</a>
         <span class="grow"></span>
         <span class="hint">每页</span>
-        <select id="fpage"><option value="50">50</option><option value="100">100</option><option value="300">300</option><option value="0">全部</option></select>
+        <select id="fpage"><option value="50">50</option><option value="100">100</option><option value="200" selected>200</option><option value="500">500</option></select>
       </div>
     </div>
     <div id="listwrap"></div>
@@ -342,7 +342,7 @@ function drawList(){
   drawChips(filtered(true));
   let rows=sortRows(filtered());
   if(F.status==='待核对' && !SORT.field){ rows=rows.slice().sort((p,q)=>((q.__q?1:0)-(p.__q?1:0))); }  // 可确认的排前面
-  const size=Number(($('fpage')&&$('fpage').value)||50);
+  const size=Number(($('fpage')&&$('fpage').value)||200);
   const pages=size>0?Math.max(1,Math.ceil(rows.length/size)):1;
   if(PAGE>pages) PAGE=pages; if(PAGE<1) PAGE=1;
   const view=size>0?rows.slice((PAGE-1)*size,PAGE*size):rows;
@@ -367,7 +367,7 @@ function drawList(){
   // 展开行/内联区内的「核对」操作（改理由/文案、传图、确认/驳回、撤回）
   $('listwrap').querySelectorAll('button.qa').forEach(b=>b.onclick=()=>queueAct(b.dataset.oid,b.dataset.act));
   $('listwrap').querySelectorAll('input.qfile').forEach(inp=>inp.onchange=()=>onPickFiles(inp.dataset.oid,inp));
-  view.forEach(x=>{ if(x.__q && x.__q.status==='待核对'){ renderAtt(x.order_id); loadUploads(x.order_id); } });
+  view.forEach(x=>{ if(x.__q && x.__q.status==='待核对'){ if(QIMG[x.order_id]===undefined){ QIMG[x.order_id]=(x.__q.images||[]).map(i=>Object.assign({},i,{status:'done'})); } renderAtt(x.order_id); } });
   $('pager').innerHTML= size>0 && pages>1
     ? '<button data-pg="1">首页</button><button data-pg="'+(PAGE-1)+'">上一页</button><span class="hint">第 '+PAGE+' / '+pages+' 页 · 每页 '+size+' 条</span><button data-pg="'+(PAGE+1)+'">下一页</button><button data-pg="'+pages+'">末页</button>'
     : '<span class="hint">共 '+rows.length+' 条</span>';
@@ -912,7 +912,7 @@ function createAppealWeb({app, appeal}){
           const f=path.join(reportsDir(),'review-queue.json');
           let q={items:{}}; try{ q=JSON.parse(fs.readFileSync(f,'utf8')); }catch(e){}
           const SMAP={pending:'待核对',confirmed:'已确认',submitted:'已提交',rejected:'不举报',gone:'已失效'};
-          const items=Object.values(q.items||{}).map(x=>Object.assign({},x,{status:SMAP[x.status]||x.status||'待核对'}));
+          const items=Object.values(q.items||{}).map(x=>Object.assign({},x,{status:SMAP[x.status]||x.status||'待核对',images:listLocalImages(x.order_id)}));
           res.setHeader('Content-Type','application/json;charset=utf-8'); res.end(JSON.stringify({items, count:items.length})); return;
         }
         if(req.url.startsWith('/data')){ res.setHeader('Content-Type','application/json;charset=utf-8'); res.end(JSON.stringify(buildData())); return }
