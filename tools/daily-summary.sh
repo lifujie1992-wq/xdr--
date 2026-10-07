@@ -218,32 +218,30 @@ def act(d):
     return sum(d[k]['sub'] + d[k]['audN'] for k in KINDS)
 
 if SH:
-    order = sorted(SH.items(), key=lambda kv: (-act(kv[1]), -sum(kv[1][k]['total'] for k in KINDS)))
-    active = [(s, d) for s, d in order if act(d)]
-    idle = [(s, d) for s, d in order if not act(d)]
+    def tot(d):
+        return sum(d[k]['total'] for k in KINDS)
+    def totAI(d):
+        return sum(d[k]['totAI'] for k in KINDS)
+    def totMan(d):
+        return sum(d[k]['totMan'] for k in KINDS)
+    order = sorted(SH.items(), key=lambda kv: (-act(kv[1]), -tot(kv[1])))
     L.append('')
-    L.append('🏪 店铺维度（品退 / 中差评 × AI / 人工）')
-    for s, d in active:
-        L.append('• %s' % s)
+    L.append('🏪 店铺维度（每店：品退/中差评 数量 · 成功失败 · 通过率；末行 AI/人工 合计）')
+    for s, d in order:
+        if not tot(d):
+            continue
+        L.append('• %s%s' % (s, '   ★今日有动作' if act(d) else ''))
         for k in KINDS:
             x = d[k]
+            if not x['total']:
+                continue
+            line = '   %-4s %d 单 ｜ 成功 %d · 失败 %d · 通过率 %d%%' % (
+                k, x['total'], x['ok'], x['bad'], rate(x['ok'], x['bad']))
             if x['sub'] or x['audN']:
-                L.append('   %-4s 今日 提交%d（AI%d·人工%d；成%d 败%d 审%d）· 出结果%d（AI%d·人工%d）｜ 累计%d（AI%d）· 通过率%d%%' % (
-                    k, x['sub'], x['subAI'], x['subMan'], x['pass'], x['rej'], x['wait'],
-                    x['audN'], x['audAI'], x['audMan'], x['total'], x['totAI'], rate(x['ok'], x['bad'])))
-            elif x['total']:
-                L.append('   %-4s 今日无 ｜ 累计%d（AI%d · 人工%d）· 通过率%d%%' % (
-                    k, x['total'], x['totAI'], x['totMan'], rate(x['ok'], x['bad'])))
-    if idle:
-        L.append('')
-        L.append('— 今日无提交的店（累计）—')
-        for s, d in idle:
-            parts = []
-            for k in KINDS:
-                x = d[k]
-                if x['total']:
-                    parts.append('%s %d单(AI%d)/%d%%' % (k, x['total'], x['totAI'], rate(x['ok'], x['bad'])))
-            L.append('• %s：%s' % (s, ' ｜ '.join(parts)))
+                line += ' ｜ 今日 提交%d(成%d 败%d 审%d) 出结果%d' % (
+                    x['sub'], x['pass'], x['rej'], x['wait'], x['audN'])
+            L.append(line)
+        L.append('   └ 提交合计 AI %d · 人工 %d' % (totAI(d), totMan(d)))
 
 L.append('')
 L.append('（数据源：抖店举报记录 + 本地提交日志；%s）' % ('本次已刷新' if os.environ.get('SYNCED') == '1' else '本次未刷新，沿用上次'))
