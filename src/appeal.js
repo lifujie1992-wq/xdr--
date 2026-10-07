@@ -842,7 +842,7 @@ function createAppeal({store, jobs, app}){
         let f=null, _flyReason='';
         for(let attempt=0; attempt<2 && !(f&&f.ready); attempt++){
           try{ await rB.loadURL(flygeUrl).catch(()=>{}); }catch(e){}
-          for(let i=0;i<18;i++){
+          for(let i=0;i<30;i++){
             await sleep(1000);
             let info=null; try{ info=JSON.parse(await runPage(rB,pageFlygeInfo)||'{}'); }catch(e){}
             if(info&&info.ready){ try{ f=JSON.parse(await runPage(rB,pageFlyge)||'{}'); }catch(e){ f=null; } if(f&&f.ready) break; }
