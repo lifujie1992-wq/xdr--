@@ -248,26 +248,66 @@ text = '\n'.join(L)
 open(out, 'w', encoding='utf-8').write(text + '\n')
 print(text)
 
-# 存档 json
+# 存档 json + 历史（每天一行，按日期去重；原子写入，绝不动其它日期）
 jpath = os.path.join(rd, 'daily-summary.json')
+hpath = os.path.join(rd, 'daily-summary-history.jsonl')
 try:
-    json.dump({'date': today, 'text': text,
-               'kinds': {k: {'today': G[k], 'auditToday': A[k], 'total': T[k]} for k in KINDS},
-               'bySubmitter': W,
-               'byShop': [{'shop': s, **{k: d[k] for k in KINDS}} for s, d in
-                          sorted(SH.items(), key=lambda kv: -sum(kv[1][k]['total'] for k in KINDS))],
-               'generatedAt': datetime.datetime.now().isoformat()},
-              open(jpath, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    day = {'date': today,
+           'kinds': {k: {'today': G[k], 'auditToday': A[k], 'total': T[k]} for k in KINDS},
+           'bySubmitter': W,
+           'byShop': [{'shop': s, **{k: d[k] for k in KINDS}} for s, d in
+                      sorted(SH.items(), key=lambda kv: -sum(kv[1][k]['total'] for k in KINDS))],
+           'generatedAt': datetime.datetime.now().isoformat()}
+    # 最新一份
+    with open(jpath + '.tmp', 'w', encoding='utf-8') as fh:
+        json.dump(dict(day, text=text), fh, ensure_ascii=False, indent=1)
+    os.replace(jpath + '.tmp', jpath)
+    # 历史：读回全部 → 只替换当天 → 原子写回（其它日期原样保留；重复日期只留一行）
+    lines, replaced, bad = [], False, []
+    if os.path.exists(hpath):
+        with open(hpath, encoding='utf-8') as fh:
+            for line in fh:
+                s = line.strip()
+                if not s:
+                    continue
+                try:
+                    e = json.loads(s)
+                except Exception:
+                    bad.append(s)          # 已损坏的行原样保留，不删
+                    continue
+                if str(e.get('date') or '') == today:
+                    if replaced:
+                        continue           # 同一天的重复行 → 跳过
+                    lines.append(json.dumps(day, ensure_ascii=False))
+                    replaced = True
+                else:
+                    lines.append(s)        # 其它日期原样保留
+    if not replaced:
+        lines.append(json.dumps(day, ensure_ascii=False))
+    lines.extend(bad)
+    with open(hpath + '.tmp', 'w', encoding='utf-8') as fh:
+        fh.write('\n'.join(lines) + ('\n' if lines else ''))
+    os.replace(hpath + '.tmp', hpath)
+    # 每天一份纯文本（其它日期不碰；同一天原子替换）
+    tp = os.path.join(rd, 'summary-%s.txt' % today)
+    with open(tp + '.tmp', 'w', encoding='utf-8') as fh:
+        fh.write(text + '\n')
+    os.replace(tp + '.tmp', tp)
 except Exception:
     pass
 
-# 推云端
+# 推云端（最新 + 当天存档 + 历史）
 try:
-    for src, dst in ((out, 'daily-summary.txt'), (jpath, 'daily-summary.json')):
-        subprocess.run(['/usr/bin/scp', '-q', '-i', os.path.expanduser('~/.ssh/xdr_mac'),
-                        '-o', 'ConnectTimeout=12', src,
-                        'root@47.114.33.246:/srv/appeal-workbench/data/' + dst], timeout=30)
-    print('已推云端')
+    pushes = [(out, 'daily-summary.txt'),
+              (jpath, 'daily-summary.json'),
+              (hpath, 'daily-summary-history.jsonl'),
+              (os.path.join(rd, 'summary-%s.txt' % today), 'daily-summary-%s.txt' % today)]
+    for src, dst in pushes:
+        if os.path.exists(src):
+            subprocess.run(['/usr/bin/scp', '-q', '-i', os.path.expanduser('~/.ssh/xdr_mac'),
+                            '-o', 'ConnectTimeout=12', src,
+                            'root@47.114.33.246:/srv/appeal-workbench/data/' + dst], timeout=30)
+    print('已推云端（含历史）')
 except Exception as e:
     print('推云端失败:', e)
 
