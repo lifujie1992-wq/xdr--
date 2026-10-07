@@ -12,9 +12,11 @@ async function pageFlygeInfo(){
   try{
     const u=String(location.href||'');
     const t=(document.body?document.body.innerText:'').slice(0,4000);
-    const login=/login|passport|sso/i.test(u) || /扫码登录|验证码登录|密码登录|登录已失效|请先登录|重新登录/.test(t);
-    const noperm=/暂无会话权限|开通.{0,12}客服接待|基础接待.{0,10}权限/.test(t);
     const ready=!!document.querySelector('.messageList') || document.querySelectorAll('.msgItemWrap').length>0;
+    // 登录页判定：URL 只认真正的登录域/路径，且必须「飞鸽界面没起来」才算（避免跳转中的瞬时误判）
+    const loginLike = /passport\.jinritemai\.com|\/login(\/|\?|$)/i.test(u) || /扫码登录|验证码登录|密码登录|登录已失效|请先登录|重新登录/.test(t);
+    const login = loginLike && !ready;
+    const noperm = !ready && /暂无会话权限|开通.{0,12}客服接待|基础接待.{0,10}权限/.test(t);
     return JSON.stringify({url:u, login:login, noperm:noperm, ready:ready});
   }catch(e){ return JSON.stringify({error:String(e&&e.message||e)}) }
 }
@@ -843,11 +845,11 @@ function createAppeal({store, jobs, app}){
           for(let i=0;i<18;i++){
             await sleep(1000);
             let info=null; try{ info=JSON.parse(await runPage(rB,pageFlygeInfo)||'{}'); }catch(e){}
-            if(info&&info.login){ _flyReason='login'; break; }
-            if(info&&info.noperm){ _flyReason='noperm'; break; }
             if(info&&info.ready){ try{ f=JSON.parse(await runPage(rB,pageFlyge)||'{}'); }catch(e){ f=null; } if(f&&f.ready) break; }
+            if(info&&info.noperm){ _flyReason='noperm'; break; }
+            if(info&&info.login){ _flyReason='login'; }   // 先记下，但继续重试（可能只是跳转中的瞬时状态）
           }
-          if(_flyReason==='login'||_flyReason==='noperm') break;
+          if(_flyReason==='noperm') break;
         }
         if(!f||!f.ready){
           const _rs=(_flyReason==='login')?'飞鸽登录失效（需重新登录该店铺）':(_flyReason==='noperm'?'飞鸽无会话权限（子账号需开通「飞鸽客服-客服接待-基础接待」）':'飞鸽未加载');
