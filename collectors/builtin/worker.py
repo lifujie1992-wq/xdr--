@@ -76,12 +76,54 @@ def main(request):
         from quality import fetch_quality_returns,period
         from concurrent.futures import ThreadPoolExecutor
         from datetime import datetime,timezone
-        import time
+        import time,json as _json
         started=time.perf_counter();span=period(30)
+        # 已有判定结果的单号（按店），供采集器优先核查尚未判定的
+        try:
+            _pool=Path(request['dataDir'])/'quality-all-latest.json'
+            _chk={}
+            for _x in _json.loads(_pool.read_text(encoding='utf-8')):
+                if _x.get('appealable') is not None and _x.get('order_id'):
+                    _chk.setdefault(str(_x.get('shop_id') or ''),set()).add(str(_x['order_id']))
+            for _it in request['shops']:
+                _it['checked']=list(_chk.get(str(_it.get('id') or ''),set()))[:6000]
+        except Exception:
+            pass
         with ThreadPoolExecutor(max_workers=3) as pool:results=collect(pool,lambda item:fetch_quality_returns(item),request['shops'])
         http=time.perf_counter()-started
         worklist,count=finalize_worklist(results,request['dataDir'],'quality_returns')
-        return {'captured_at':datetime.now(timezone.utc).isoformat(),'period':span,'total_candidates':count,'worklist_file':worklist,'success':sum(r['status']=='ok' for r in results),'shop_count':len(results),'concurrency':3,'python_http_seconds':round(http,3),'results':results}
+        # 额外落一份「全量品退池」（含被筛掉的：说明与原因一致 / 含真实品质词 / 详情失败）
+        try:
+            folder=Path(request['dataDir']);folder.mkdir(parents=True,mode=0o700,exist_ok=True)
+            stamp=datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')
+            allrows=[]
+            for r in results:
+                for x in (r.get('all_returns') or []):
+                    allrows.append(dict(x, shop=r.get('name') or '', shop_id=r.get('shop_id') or ''))
+            f=folder/('quality-all-%s.json'%stamp)
+            f.write_text(json.dumps(allrows,ensure_ascii=False,indent=1),encoding='utf-8')
+            os.chmod(f,0o600)
+            latest=folder/'quality-all-latest.json'
+            merged={}
+            try:
+                for x in json.loads(latest.read_text(encoding='utf-8')): merged[str(x.get('order_id'))]=x
+            except Exception:
+                pass
+            for x in allrows:
+                if x.get('order_id'): merged[str(x['order_id'])]=x
+            from datetime import date,timedelta
+            cutoff=(date.today()-timedelta(days=30)).isoformat()
+            merged={k:v for k,v in merged.items() if str(v.get('apply_date') or cutoff)>=cutoff}
+            latest.write_text(json.dumps(list(merged.values()),ensure_ascii=False),encoding='utf-8')
+            os.chmod(latest,0o600)
+            total_pool=sum(len(r.get('all_returns') or []) for r in results)
+            total_appealable=sum(r.get('appealable_count') or 0 for r in results)
+            # 池已落盘，回传时清掉明细，避免「采集模块返回过大」
+            for r in results:
+                if 'all_returns' in r: r['all_returns']=[]
+        except Exception:
+            total_pool=total_appealable=0
+        return {'captured_at':datetime.now(timezone.utc).isoformat(),'period':span,'total_candidates':count,'worklist_file':worklist,'total_pool':total_pool,'total_appealable':total_appealable,'success':sum(r['status']=='ok' for r in results),'shop_count':len(results),'concurrency':3,'python_http_seconds':round(http,3),'results':results}
     if request.get('action')=='negative_reviews':
         from quality import fetch_negative_reviews
         from concurrent.futures import ThreadPoolExecutor

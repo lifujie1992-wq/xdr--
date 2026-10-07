@@ -191,7 +191,7 @@ const pct=(a,b)=>(a+b)?Math.round(a/(a+b)*100):0;
 const RESULTS=(typeof DATA!=='undefined'&&DATA&&DATA._results)||{};
 function auditState(oid){const v=RESULTS&&RESULTS[oid];if(!v)return null;const a=v.auditStatus;if(a===6)return '已通过';if(a===3)return '已驳回';return '举报中';}
 function kindBd(k){return '<span class="kindbd '+(k==='品退'?'kd-q':'kd-r')+'">'+esc(k||'—')+'</span>'}
-function badge(s){const M={'已举报':'st-doing','举报成功':'st-ok','举报失败':'st-no','不可举报':'st-no','需转人工':'st-human','未处理':'st-todo'};const c=M[s]||'st-human';return '<span class="st '+c+'">'+esc(s||'—')+'</span>'}
+function badge(s){const M={'已举报':'st-doing','举报成功':'st-ok','举报失败':'st-no','不可举报':'st-no','不可申诉':'st-no','未核查':'st-todo','需转人工':'st-human','未处理':'st-todo'};const c=M[s]||'st-human';return '<span class="st '+c+'">'+esc(s||'—')+'</span>'}
 function auditCell(x){const tip=esc((x.auditMsg||'').replace(/\\s+/g,' ').slice(0,200));if(!/^(已举报|举报成功|举报失败)$/.test(x.status||''))return '<td></td>';if(x.auditStatus===3)return '<td class="rej" title="'+tip+'">❌ 平台拒绝：'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0])+'</td>';if(x.auditStatus===6)return '<td class="okc">✅ 审核通过</td>';if(x.auditStatus==null)return '<td class="wait">平台记录待同步</td>';return '<td class="wait">审核中</td>'}
 function drawTabs(){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===TAB));['ops','boss','review','list'].forEach(t=>$(t).classList.toggle('hide',t!==TAB))}
 function drawOps(){
@@ -250,8 +250,8 @@ function drawReview(){
 }
 let PAGE=1, F={status:'',kind:'',shop:'',q:'',from:'',to:'',scenario:''};
 const STATUSES=['已举报','举报成功','举报失败','不可举报','需转人工','未举报'];
-const USTATUSES=['待核对','已确认','审核中','举报成功','举报失败','不可举报','未处理'];
-const USTATUS_DESC={'待核对':'需要人工核对/确认后才提交','已确认':'已人工确认，等待本地执行提交','审核中':'已提交平台，等待审核结果','举报成功':'平台审核通过（差评率已剔除）','举报失败':'平台驳回','不可举报':'平台判定不能报（含无需举报），已放弃','未处理':'系统还没处理过'};
+const USTATUSES=['待核对','已确认','审核中','举报成功','举报失败','不可举报','不可申诉','未核查','未处理'];
+const USTATUS_DESC={'待核对':'需要人工核对/确认后才提交','已确认':'已人工确认，等待本地执行提交','审核中':'已提交平台，等待审核结果','举报成功':'平台审核通过（差评率已剔除）','举报失败':'平台驳回','不可举报':'平台判定不能报（含无需举报），已放弃','不可申诉':'品退全量池：不符合申诉条件（说明与品质原因一致/自带品质描述），已自动排除','未核查':'品退全量池：本批超出逐单核查上限，暂未判定（下次跑批会补）','未处理':'系统还没处理过'};
 const qStatus=x=>String((x&&x.status)||'').replace(/（待本地执行）$/,'');
 const uStatus=x=>{ let st=String((x&&x.status)||''); if(st==='需转人工') st='待核对'; if(st==='已举报'||st==='已提交'||st==='待同步') st='审核中'; if(st==='未举报') st='未处理'; if(st==='不举报') st='不可举报'; return st; };
 function uniRows(){
@@ -326,6 +326,7 @@ function detailCell(x){
   if(_dl) kv.push(['日期线', _dl]);
   if(x.kind==='品退'){
     if(x.aftersale_desc) kv.push(['售后说明', esc(x.aftersale_desc)]);
+    kv.push(['判定', (x.appealable===0)?('<span class="rej">不可申诉</span>｜'+esc(x.block_reason||'')):((x.appealable===1)?'<span class="okc">可申诉</span>':'未知')]);
     kv.push(['上传图片', (x.has_media===1)?'有':((x.has_media===0)?'无':'未知')]);
     const _cb=Number(x.chat_buyer||0), _ct=Number(x.chat_total||0);
     kv.push(['飞鸽聊天', _ct?('共 '+_ct+' 条'+(x.chat_imgs?('（图 '+x.chat_imgs+' 张）'):'')+((_cb>0)?'':'(买家未发言)')+(x.chat_agents?(' ｜ 客服：'+esc(x.chat_agents)):'')):'无聊天记录']);
@@ -359,7 +360,7 @@ function drawList(){
       +'<td class="ordcell"><span class="mono">'+esc(x.order_id)+'</span><br><span class="sub">'+esc(x.product_name||'')+'</span>'+(x.product_id?'<span class="sub"> · 编码 '+esc(x.product_id)+'</span>':'')+'</td>'
       +'<td>'+badge(x.status)+'</td>'
       +'<td class="why" title="'+esc(x.why||'')+'">'+esc(x.why||'—')+'</td>'
-      +'<td class="ops">'+((x.__q && x.__q.status==='待核对')?qEditBlock(x.__q):('<span class="hint">'+esc((x.kind==='品退'?x.aftersale:x.content)||x.report_reason||'—')+'</span>'))+'</td>'
+      +'<td class="ops">'+((x.__q && x.__q.status==='待核对')?qEditBlock(x.__q):('<span class="hint">'+esc((x.kind==='品退'&&x.appealable===0?(x.block_reason||x.aftersale):(x.kind==='品退'?x.aftersale:x.content))||x.report_reason||'—')+'</span>'))+'</td>'
       +'<td>'+(x.submitter?'<span class="tag">'+esc(x.submitter)+'</span>':'')+'</td>'
       +auditCell(x)
       +'</tr>'
@@ -623,6 +624,13 @@ function createAppealWeb({app, appeal}){
     }catch(e){}
     return [...map.values()];
   }
+  function loadAllReturns(){
+    const map=new Map();
+    try{ const files=fs.readdirSync(dataDir()).filter(f=>f.startsWith('quality-all-')&&f.endsWith('.json')).sort();
+      for(const f of files){ for(const r of (readJson(path.join(dataDir(),f))||[])){ if(r.order_id){ const old=map.get(r.order_id); map.set(r.order_id, old?Object.assign({},old,r):r); } } }
+    }catch(e){}
+    return [...map.values()];
+  }
   function loadWorklist(prefix){
     const map=new Map();
     try{ const files=fs.readdirSync(dataDir()).filter(f=>f.startsWith('appeal-worklist-'+prefix+'-')&&f.endsWith('.json')).sort();
@@ -695,7 +703,7 @@ function createAppealWeb({app, appeal}){
 
     // ① 清单里的单（品退候选 + 中差评全量）
     for(const [kind,prefix,label] of [['quality','quality_returns','品退'],['review','negative_reviews','中差评']]){
-      const src=(prefix==='negative_reviews')?loadAllReviews():loadWorklist(prefix);
+      const src=(prefix==='negative_reviews')?loadAllReviews():(function(){ const m=new Map(); for(const r of loadWorklist(prefix)) if(r.order_id) m.set(r.order_id,r); for(const r of loadAllReturns()) if(r.order_id&&!m.has(r.order_id)) m.set(r.order_id,r); return [...m.values()]; })();
       for(const r of src){
         const dd=r.apply_date||r.comment_date||'';
         if(dd && dd<minDate) continue;
@@ -740,8 +748,18 @@ function createAppealWeb({app, appeal}){
         if(status==='需转人工' && !tags.some(t=>t==='需转人工')) tags.unshift('需转人工');
         if(status==='需转人工') tags.unshift('需转人工');
         if(status==='未处理' && tags.some(t=>/^(不可举报|无需举报)$/.test(t))) status='不可举报';
-        const _sub=lastSub[r.order_id];
-        const _rb=(_sub&&_sub.detail&&_sub.detail.reqBody)||{};
+        // 全量品退池：未逐单核查的（超出上限），标为待核查
+        if(label==='品退' && r.appealable===null && r.block_reason && !av && !(e&&e.result==='已提交')){
+          if(status==='未处理') status='未核查';
+          if(!why) why=String(r.block_reason||'');
+        }
+        // 全量品退池：明确不可申诉的，直接标出来（不当作待处理）
+        if(label==='品退' && r.appealable===false && !av && !(e&&e.result==='已提交')){
+          if(status==='未处理') status='不可申诉';
+          if(!why) why=String(r.block_reason||'不符合品退申诉条件');
+          if(!tags.some(t=>t==='不可申诉')) tags.push('不可申诉');
+        }
+        const _sub=lastSub[r.order_id];        const _rb=(_sub&&_sub.detail&&_sub.detail.reqBody)||{};
         const _reportReason=String((_sub&&_sub.detail&&_sub.detail.reasonLabel)||'')||REASON_LABEL[_rb.sub_scene_type]||'';
         const _content=(label==='中差评')?String(r.content||r.reason||''):'';
         const _aftersale=(label==='品退')?String(r.reason||r.description||''):'';
@@ -758,6 +776,8 @@ function createAppealWeb({app, appeal}){
           report_reason:_reportReason, appeal_desc:String(_rb.report_desc||r.report_desc||''),
           feedback_date:dd||'', collected_at:collectedAt[r.order_id]||'', operated_at:(e&&e.at)||'',
           submitted_at:((lastSub[r.order_id]&&lastSub[r.order_id].at)||''),
+          appealable:(label==='品退')?(r.appealable===false?0:(r.appealable===true?1:(r.report_desc?1:null))):null,
+          block_reason:(label==='品退')?String(r.block_reason||''):'',
           scenario:scenarioOf(label,_reportReason,_aftersale)});
       }
     }

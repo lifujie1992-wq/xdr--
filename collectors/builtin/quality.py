@@ -151,7 +151,7 @@ def _list_quality_orders(s, span, max_pages, page_size):
     """拉取近 N 天售后单，返回原因命中品质关键词的订单（含售后单号）。"""
     orders = []
     body = {'pageSize': page_size, 'page': 1, 'order_by': ['status_deadline asc'], 'conf_version': 'v13',
-            'search_receiver': '', 'after_sale_status': '', 'after_sale_type': '', 'reason': '',
+            'search_receiver': '', 'after_sale_status': '', 'after_sale_type': '', 'reason': 'product_quality',
             'negotiate_status': '', 'order_flag': [], 'order_logistics_state': [],
             'apply_time_start': span['start_epoch'], 'apply_time_end': span['end_epoch'],
             'shop_hit_gray_info': {'list_v1': {'hit': True}}}
@@ -277,7 +277,7 @@ def _fetch_detail(s, after_sale_id):
         raise ValueError('售后详情被平台拒绝')
     return payload
 
-def fetch_quality_returns(item, span=None, max_pages=20, page_size=50, max_details=200, detail_workers=5):
+def fetch_quality_returns(item, span=None, max_pages=60, page_size=50, max_details=2200, detail_workers=6):
     """扫描品退：售后原因为品质类，且售后说明为空、无任何买家图片/视频凭证。"""
     if span is None:
         span = span_since(item.get('since'))
@@ -290,6 +290,10 @@ def fetch_quality_returns(item, span=None, max_pages=20, page_size=50, max_detai
         for _o in orders:
             _d = _ymd(_o['apply_time'])
             if _d: all_daily[_d] = all_daily.get(_d, 0) + 1
+        # 优先核查「尚未判定」的单（已判定的排后面），多跑几轮可把全量补全
+        _chk=set(str(x) for x in (item.get('checked') or []))
+        if _chk:
+            orders.sort(key=lambda _o: 1 if str(_o['order_id']) in _chk else 0)
         picked = orders[:max_details]
         cookies = [dict(c) for c in item['cookies']]; ua = item['ua']
         def work(o):
@@ -301,16 +305,46 @@ def fetch_quality_returns(item, span=None, max_pages=20, page_size=50, max_detai
                 return o, None, None, None, '', '', ''
             finally:
                 ds.cookies.clear(); ds.close()
+        # 超出单次逐单核查上限的，也进池（标未核查），保证「品退全量」不漏
+        pool_rows = []
+        for _o in orders[max_details:]:
+            pool_rows.append({
+                'order_id': _o['order_id'], 'after_sale_id': _o['after_sale_id'],
+                'reason': _o.get('reason') or '', 'description': '', 'has_media': False,
+                'apply_date': _ymd(_o['apply_time']),
+                'apply_time': datetime.fromtimestamp(_o['apply_time'], ZoneInfo('Asia/Shanghai')).isoformat() if _o['apply_time'] else '',
+                'product_name': _o.get('product_name') or '', 'product_id': _o.get('product_id') or '',
+                'flyge_url': '', 'appealable': None, 'block_reason': '未逐单核查（超出单次上限，下次跑批会覆盖）',
+            })
         with ThreadPoolExecutor(max_workers=detail_workers) as pool:
             for o, reason, desc, has_ev, contact, pname, pid in pool.map(work, picked):
                 if reason is None:
+                    pool_rows.append({
+                        'order_id': o['order_id'], 'after_sale_id': o['after_sale_id'],
+                        'reason': o.get('reason') or '', 'description': '', 'has_media': False,
+                        'apply_date': _ymd(o['apply_time']),
+                        'apply_time': datetime.fromtimestamp(o['apply_time'], ZoneInfo('Asia/Shanghai')).isoformat() if o['apply_time'] else '',
+                        'product_name': pname or o.get('product_name') or '', 'product_id': pid or o.get('product_id') or '',
+                        'flyge_url': '', 'appealable': False, 'block_reason': '售后详情获取失败，待重试',
+                    })
                     continue  # 详情获取失败，不贸然判定
                 if not is_quality_reason(reason):
                     continue
+                block = ''
                 if not is_subjective_reason(desc):
+                    block = '售后说明与所选品质原因一致，不属主观' if str(desc or '').strip() else '买家未填写售后说明'
+                elif has_strong_quality(desc):
+                    block = '说明里含具体品质问题（%s）' % str(desc)[:14]  # 原因与描述一致，举报不过
+                pool_rows.append({
+                    'order_id': o['order_id'], 'after_sale_id': o['after_sale_id'],
+                    'reason': reason, 'description': desc, 'has_media': bool(has_ev),
+                    'apply_date': _ymd(o['apply_time']),
+                    'apply_time': datetime.fromtimestamp(o['apply_time'], ZoneInfo('Asia/Shanghai')).isoformat() if o['apply_time'] else '',
+                    'product_name': pname or o.get('product_name') or '', 'product_id': pid or o.get('product_id') or '',
+                    'flyge_url': contact, 'appealable': not block, 'block_reason': block,
+                })
+                if block:
                     continue
-                if has_strong_quality(desc):
-                    continue  # 说明里也写了品质问题，原因与描述一致，举报不过
                 r_short = reason.replace('（商品品质原因）', '').replace('(商品品质原因)', '')
                 report_desc = ('售后原因选“%s”，但售后说明写的是“%s”，属个人主观/非品质原因，与所选品质退货原因不符，恳请核实剔除品退率考核。' % (r_short, desc))[:100]
                 candidates.append({
@@ -330,7 +364,9 @@ def fetch_quality_returns(item, span=None, max_pages=20, page_size=50, max_detai
                 })
         return {'shop_id': item['id'], 'name': item['name'], 'status': 'ok',
                 'quality_count': quality_total, 'checked_count': len(picked), 'candidate_count': len(candidates),
+                'appealable_count': sum(1 for x in pool_rows if x.get('appealable')),
                 'all_daily': all_daily,
+                'all_returns': pool_rows,
                 'candidates': candidates,
                 'candidate_orders': '、'.join(c['order_id'] for c in candidates[:30]) or '',
                 'captured_at': datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),

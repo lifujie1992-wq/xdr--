@@ -78,7 +78,7 @@
    "id": "quality_returns",
    "action": "quality_returns",
    "title": "无凭证品退筛查",
-   "description": "近30天售后原因选品质类、但售后说明写的是主观/非品质原因（不想要/多拍/错拍/不好看/7天无理由等）的订单，符合平台“品质退货与事实不符”审核标准。仅筛查，不提交举报。",
+   "description": "近30天「申请原因=商品品质原因」的全部品退（平台口径 reason=product_quality）。逐单核对售后说明：说明为主观/非品质原因的判为可申诉，其余标为不可申诉并给出原因。仅筛查，不提交举报。",
    "platforms": [
     "抖店"
    ],
@@ -101,7 +101,8 @@
      "label": "采集时间",
      "format": "date"
     }
-   ]
+   ],
+   "version": "1.1.0"
   },
   {
    "id": "negative_reviews",

@@ -84,6 +84,6 @@ R=$(printf 'header = "Authorization: Bearer %s"\n' "$T" | /usr/bin/curl --config
 case "$R" in *'"running":true'*) say "已有申诉任务在跑，本次跳过（下次再提）"; exit 0;; esac
 OUT=$(printf 'header = "Authorization: Bearer %s"\n' "$T" | /usr/bin/curl --config - -s --max-time 30 --noproxy '*' \
   -H 'Content-Type: application/json' -H 'X-ShopDesk-Client: cron' \
-  --data-binary '{"method":"auto_appeal_start","args":{"kinds":["reviews"],"submit":true,"reviewQueue":true,"confirmedOnly":true,"skipSync":true}}' \
+  --data-binary '{"method":"auto_appeal_start","args":{"kinds":["quality","reviews"],"submit":true,"reviewQueue":true,"confirmedOnly":true,"skipSync":true}}' \
   "http://127.0.0.1:$P/call" 2>/dev/null)
 say "已触发提交: $OUT"
