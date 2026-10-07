@@ -105,13 +105,54 @@ if rej_msg:
     for m, n in rej_msg.most_common(5):
         L.append('   • %s  ×%d' % (m, n))
 
-# 今日提交按店
-by_shop = collections.Counter(str(r.get('shop') or '?') for r in sub_today)
-if by_shop:
+# ---------- 店铺维度 ----------
+shops = {}
+def row(s):
+    return shops.setdefault(s, {'subT': 0, 'passT': 0, 'rejT': 0, 'waitT': 0,
+                                'audT': 0, 'audPass': 0, 'audRej': 0,
+                                'total': 0, 'pass': 0, 'rej': 0})
+for r in recs:
+    d = row(str(r.get('shop') or '?'))
+    d['total'] += 1
+    if r.get('auditStatus') == 6:
+        d['pass'] += 1
+    elif r.get('auditStatus') == 3:
+        d['rej'] += 1
+for r in sub_today:
+    d = row(str(r.get('shop') or '?'))
+    d['subT'] += 1
+    if r.get('auditStatus') == 6:
+        d['passT'] += 1
+    elif r.get('auditStatus') == 3:
+        d['rejT'] += 1
+    else:
+        d['waitT'] += 1
+for r in aud_today:
+    d = row(str(r.get('shop') or '?'))
+    d['audT'] += 1
+    if r.get('auditStatus') == 6:
+        d['audPass'] += 1
+    elif r.get('auditStatus') == 3:
+        d['audRej'] += 1
+
+if shops:
     L.append('')
-    L.append('🏪 今日提交按店 Top')
-    for s, n in by_shop.most_common(6):
-        L.append('   • %s  %d 单' % (s, n))
+    L.append('🏪 店铺维度（今日 提交·成功·失败·审核中 ｜ 累计 单数·通过率）')
+    ordered = sorted(shops.items(), key=lambda kv: (-kv[1]['subT'], -kv[1]['total']))
+    active = [(s, d) for s, d in ordered if d['subT'] or d['audT']]
+    idle = [(s, d) for s, d in ordered if not (d['subT'] or d['audT'])]
+    for s, d in active:
+        r_ = round(d['pass'] * 100 / (d['pass'] + d['rej'])) if (d['pass'] + d['rej']) else 0
+        L.append('• %s' % s)
+        L.append('   今日 提交%d 成功%d 失败%d 审核中%d ｜ 出结果%d（成%d 败%d）' % (
+            d['subT'], d['passT'], d['rejT'], d['waitT'], d['audT'], d['audPass'], d['audRej']))
+        L.append('   累计 提交%d 成功%d 失败%d · 通过率%d%%' % (d['total'], d['pass'], d['rej'], r_))
+    if idle:
+        L.append('')
+        L.append('— 今日无提交的店（累计）—')
+        for s, d in idle:
+            r_ = round(d['pass'] * 100 / (d['pass'] + d['rej'])) if (d['pass'] + d['rej']) else 0
+            L.append('• %s：提交 %d · 成功 %d · 失败 %d · 通过率 %d%%' % (s, d['total'], d['pass'], d['rej'], r_))
 
 L.append('')
 L.append('（数据源：抖店举报记录，%s）' % ('本次已刷新' if os.environ.get('SYNCED') == '1' else '本次未刷新，沿用上次'))
@@ -123,12 +164,13 @@ print(text)
 # 存一份 json（页面/后续分析用）
 json_path = os.path.join(rd, 'daily-summary.json')
 try:
-    json.dump({'date': today, 'text': text,
-               'subToday': len(sub_today), 'audToday': len(aud_today),
-               'audPass': len(aud_pass), 'audReject': len(aud_rej),
-               'total': {'sub': tot_sub, 'pass': tot_pass, 'reject': tot_rej, 'pending': tot_wait, 'rate': rate},
-               'generatedAt': datetime.datetime.now().isoformat()},
-              open(json_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    js = {'date': today, 'text': text,
+          'subToday': len(sub_today), 'audToday': len(aud_today),
+          'audPass': len(aud_pass), 'audReject': len(aud_rej),
+          'total': {'sub': tot_sub, 'pass': tot_pass, 'reject': tot_rej, 'pending': tot_wait, 'rate': rate},
+          'byShop': [dict(shop=s, **d) for s, d in sorted(shops.items(), key=lambda kv: -kv[1]['total'])],
+          'generatedAt': datetime.datetime.now().isoformat()}
+    json.dump(js, open(json_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
 except Exception:
     pass
 
