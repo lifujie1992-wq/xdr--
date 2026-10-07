@@ -226,7 +226,7 @@ if SH:
         return sum(d[k]['totMan'] for k in KINDS)
     order = sorted(SH.items(), key=lambda kv: (-act(kv[1]), -tot(kv[1])))
     L.append('')
-    L.append('🏪 店铺维度（每店：品退/中差评 数量 · 成功失败 · 通过率；末行 AI/人工 合计）')
+    L.append('🏪 店铺维度（累计：品退/中差评 单量·成功·失败·通过率；末行 AI/人工 合计）')
     for s, d in order:
         if not tot(d):
             continue
@@ -235,13 +235,12 @@ if SH:
             x = d[k]
             if not x['total']:
                 continue
-            line = '   %-4s %d 单 ｜ 成功 %d · 失败 %d · 通过率 %d%%' % (
-                k, x['total'], x['ok'], x['bad'], rate(x['ok'], x['bad']))
+            L.append('   累计 %-4s %d 单 ｜ 成功 %d · 失败 %d · 通过率 %d%%' % (
+                k, x['total'], x['ok'], x['bad'], rate(x['ok'], x['bad'])))
             if x['sub'] or x['audN']:
-                line += ' ｜ 今日 提交%d(成%d 败%d 审%d) 出结果%d' % (
-                    x['sub'], x['pass'], x['rej'], x['wait'], x['audN'])
-            L.append(line)
-        L.append('   └ 提交合计 AI %d · 人工 %d' % (totAI(d), totMan(d)))
+                L.append('        今日 %-4s 提交 %d（成%d 败%d 审%d）· 出结果 %d' % (
+                    k, x['sub'], x['pass'], x['rej'], x['wait'], x['audN']))
+        L.append('   └ 累计提交 AI %d · 人工 %d' % (totAI(d), totMan(d)))
 
 L.append('')
 L.append('（数据源：抖店举报记录 + 本地提交日志；%s）' % ('本次已刷新' if os.environ.get('SYNCED') == '1' else '本次未刷新，沿用上次'))
