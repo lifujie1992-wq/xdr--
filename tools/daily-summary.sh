@@ -22,7 +22,9 @@ if [ -z "${P:-}" ] || [ -z "${T:-}" ]; then
   T=$(/usr/bin/plutil -extract token raw -o - "$BRIDGE" 2>/dev/null)
 fi
 SYNCED=0
-if [ -n "${P:-}" ] && [ -n "${T:-}" ]; then
+if [ "${SKIP_SYNC:-0}" = "1" ]; then
+  say "SKIP_SYNC=1，跳过结果刷新（仅预览日报格式）"
+elif [ -n "${P:-}" ] && [ -n "${T:-}" ]; then
   R=$(printf 'header = "Authorization: Bearer %s"\n' "$T" | /usr/bin/curl --config - -s --max-time 20 --noproxy '*' -H 'Content-Type: application/json' --data-binary '{"method":"auto_appeal_status"}' "http://127.0.0.1:$P/call" 2>/dev/null)
   case "$R" in
     *'"running":true'*) say "跑批中，跳过结果刷新（日报用现有数据）";;
@@ -123,9 +125,88 @@ for r in aud_today:
 def rate(p, r):
     return round(p * 100 / (p + r)) if (p + r) else 0
 
+# ---------- 今日新增（平台今天产生的差评/品退） ----------
+PURE_EMOTION = {'差评','中评','差','中','烂','不好','不推荐','不推荐购买','垃圾','辣鸡','无语','服了','服气',
+                '呵呵','唉','哎','后悔','失望','一般','还行','凑合','醉了','离谱','难看','丑','不值','不值得',
+                '浪费钱','上当','踩雷','翻车','绝了','恶心','什么玩意','很一般','太差了','差劲','无语子'}
+
+def emo(t):
+    s = str(t or '').strip().strip('。.！!~～,，、；;？?　 \t\n')
+    return (not s) or (s in PURE_EMOTION)
+
+NEW = {k: {'n': 0, 'ok': 0} for k in KINDS}
+NEW_SHOP = {}          # {店铺: {'品退':[总,可申诉], '中差评':[总,可申诉]}}
+COLLECTED_AT = ''
+
+def bump(shop, k, ok):
+    d = NEW_SHOP.setdefault(shop or '(未知店铺)', {})
+    e = d.setdefault(k, [0, 0])
+    e[0] += 1
+    if ok:
+        e[1] += 1
+    NEW[k]['n'] += 1
+    if ok:
+        NEW[k]['ok'] += 1
+
+try:
+    _p = os.path.join(app, 'business-data', 'quality-all-latest.json')
+    COLLECTED_AT = datetime.datetime.fromtimestamp(os.path.getmtime(_p)).strftime('%m-%d %H:%M')
+    for r in json.load(open(_p)):
+        if str(r.get('apply_date') or '')[:10] != today:
+            continue
+        bump(r.get('shop'), '品退', r.get('appealable') is True)
+except Exception:
+    pass
+try:
+    _p = os.path.join(app, 'business-data', 'reviews-detail-latest.json')
+    _mt = datetime.datetime.fromtimestamp(os.path.getmtime(_p)).strftime('%m-%d %H:%M')
+    if _mt > COLLECTED_AT:
+        COLLECTED_AT = _mt
+    seen_r = set()
+    for r in json.load(open(_p)) or []:
+        try:
+            if int(r.get('rank') or 5) > 3:      # 只要中差评
+                continue
+        except Exception:
+            continue
+        oid = str(r.get('order_id') or r.get('review_id') or '')
+        if not oid or oid in seen_r:
+            continue
+        seen_r.add(oid)
+        if str(r.get('date') or '')[:10] != today:
+            continue
+        bump(r.get('shop'), '中差评', not r.get('photo_count') and not r.get('video_count'))
+except Exception:
+    pass
+
 L = []
 L.append('【抖店申诉日报】%s' % today)
 L.append('')
+L.append('📥 今日新增（平台今天新产生的）')
+for k in KINDS:
+    v = NEW[k]
+    L.append('   %-4s %6d 单 ｜ 其中可申诉 %d 单' % (k, v['n'], v['ok']))
+L.append('   （平台今日累计：品退 %d 单 · 中差评 %d 单）' % (NEW['品退']['n'], NEW['中差评']['n']))
+if COLLECTED_AT:
+    L.append('   ※ 数据截至 %s 采集；当天剩余时段平台产生的，次日 07:00 入账' % COLLECTED_AT)
+L.append('')
+
+if NEW_SHOP:
+    L.append('🏬 今日各店铺新增（总数 / 其中可申诉）')
+    _w = max(12, min(24, max(len(s) for s in NEW_SHOP) + 2))
+    L.append('   %-*s %12s %12s' % (_w, '店铺', '品退', '中差评'))
+    _order = sorted(NEW_SHOP.items(), key=lambda kv: -(kv[1].get('品退', [0, 0])[0] + kv[1].get('中差评', [0, 0])[0]))
+    for s, d in _order:
+        a = d.get('品退', [0, 0])
+        b = d.get('中差评', [0, 0])
+        L.append('   %-*s %12s %12s' % (_w, s,
+                 ('%d / %d' % (a[0], a[1])) if a[0] else '-',
+                 ('%d / %d' % (b[0], b[1])) if b[0] else '-'))
+    L.append('   %s' % ('-' * (_w + 26)))
+    L.append('   %-*s %12s %12s' % (_w, '合计',
+             '%d / %d' % (NEW['品退']['n'], NEW['品退']['ok']),
+             '%d / %d' % (NEW['中差评']['n'], NEW['中差评']['ok'])))
+    L.append('')
 
 tot_sub = sum(G[k]['sub'] for k in KINDS)
 L.append('📤 今日提交 %d 单' % tot_sub)
