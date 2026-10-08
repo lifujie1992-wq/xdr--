@@ -211,74 +211,28 @@ except Exception:
     pass
 
 L = []
-L.append('【抖店申诉日报】%s' % today)
+L.append('【抖店申诉日报】%s%s' % (today, ('　数据截至 ' + COLLECTED_AT) if COLLECTED_AT else ''))
 L.append('')
-L.append('📥 今日新增（平台今天新产生的）')
-for k in KINDS:
-    v = NEW[k]
-    L.append('   %-4s %6d 单 ｜ 其中可申诉 %d 单' % (k, v['n'], v['ok']))
-L.append('   （平台今日累计：品退 %d 单 · 中差评 %d 单）' % (NEW['品退']['n'], NEW['中差评']['n']))
+L.append('📥 今日新增　品退 %d（可申诉 %d）｜ 中差评 %d（可申诉 %d）　→ 合计可申诉 %d 单' % (
+    NEW['品退']['n'], NEW['品退']['ok'], NEW['中差评']['n'], NEW['中差评']['ok'],
+    NEW['品退']['ok'] + NEW['中差评']['ok']))
 if COLLECTED_AT:
-    L.append('   ※ 数据截至 %s 采集；当天剩余时段平台产生的，次日 07:00 入账' % COLLECTED_AT)
+    L.append('　（当天剩余时段平台产生的，次日 07:00 入账）')
 L.append('')
-
-if NEW_SHOP:
-    L.append('🏬 今日各店铺新增（总数 / 其中可申诉）')
-    _w = max(12, min(24, max(len(s) for s in NEW_SHOP) + 2))
-    L.append('   %-*s %12s %12s' % (_w, '店铺', '品退', '中差评'))
-    _order = sorted(NEW_SHOP.items(), key=lambda kv: -(kv[1].get('品退', [0, 0])[0] + kv[1].get('中差评', [0, 0])[0]))
-    for s, d in _order:
-        a = d.get('品退', [0, 0])
-        b = d.get('中差评', [0, 0])
-        L.append('   %-*s %12s %12s' % (_w, s,
-                 ('%d / %d' % (a[0], a[1])) if a[0] else '-',
-                 ('%d / %d' % (b[0], b[1])) if b[0] else '-'))
-    L.append('   %s' % ('-' * (_w + 26)))
-    L.append('   %-*s %12s %12s' % (_w, '合计',
-             '%d / %d' % (NEW['品退']['n'], NEW['品退']['ok']),
-             '%d / %d' % (NEW['中差评']['n'], NEW['中差评']['ok'])))
-    L.append('')
 
 tot_sub = sum(G[k]['sub'] for k in KINDS)
-L.append('📤 今日提交 %d 单' % tot_sub)
-if tot_sub:
-    for k in KINDS:
-        g = G[k]
-        if g['sub']:
-            L.append('   %-4s %d 单（AI%d · 人工%d）｜ 已出结果 成功%d 失败%d · 审核中%d' % (
-                k, g['sub'], g['subAI'], g['subMan'], g['pass'], g['rej'], g['wait']))
-else:
-    L.append('   （今天没有提交）')
-
 tot_aud = sum(A[k]['audN'] for k in KINDS)
-L.append('')
-L.append('📋 今日出结果 %d 单（含往日提交）' % tot_aud)
-if tot_aud:
-    for k in KINDS:
-        a = A[k]
-        if a['audN']:
-            L.append('   %-4s %d 单（AI%d · 人工%d）｜ ✅%d ❌%d · 通过率%d%%' % (
-                k, a['audN'], a['audAI'], a['audMan'], a['audPass'], a['audRej'], rate(a['audPass'], a['audRej'])))
-else:
-    L.append('   （今天没有新出结果）')
-
-L.append('')
-L.append('📊 累计（按类型）')
-for k in KINDS:
-    t = T[k]
-    L.append('   %-4s 提交%d（AI%d · 人工%d）成功%d 失败%d · 通过率%d%%' % (
-        k, t['total'], t['totAI'], t['totMan'], t['ok'], t['bad'], rate(t['ok'], t['bad'])))
-L.append('   合计 提交%d 成功%d 失败%d · 通过率%d%%' % (
-    sum(T[k]['total'] for k in KINDS), sum(T[k]['ok'] for k in KINDS),
-    sum(T[k]['bad'] for k in KINDS),
-    rate(sum(T[k]['ok'] for k in KINDS), sum(T[k]['bad'] for k in KINDS))))
-
-L.append('')
-L.append('🤖 累计（按提交人）')
-for w in WHOS:
-    x = W[w]
-    if x['total']:
-        L.append('   %-4s 提交%d 成功%d 失败%d · 通过率%d%%' % (w, x['total'], x['ok'], x['bad'], rate(x['ok'], x['bad'])))
+_p = sum(A[k]['audPass'] for k in KINDS)
+_r = sum(A[k]['audRej'] for k in KINDS)
+_all = sum(T[k]['total'] for k in KINDS)
+_ok = sum(T[k]['ok'] for k in KINDS)
+_bad = sum(T[k]['bad'] for k in KINDS)
+L.append('📤 今日提交 %d 单 ｜ 今日出结果 %d（✅%d ❌%d）' % (tot_sub, tot_aud, _p, _r))
+L.append('📊 累计提交 %d ｜ ✅%d ❌%d ｜ 通过率 %d%%' % (_all, _ok, _bad, rate(_ok, _bad)))
+L.append('　 按类型　品退 %d（%d%%）· 中差评 %d（%d%%）' % (
+    T['品退']['total'], rate(T['品退']['ok'], T['品退']['bad']),
+    T['中差评']['total'], rate(T['中差评']['ok'], T['中差评']['bad'])))
+L.append('　 按提交　%s' % (' · '.join('%s %d（%d%%）' % (w, W[w]['total'], rate(W[w]['ok'], W[w]['bad'])) for w in WHOS if W[w]['total'])))
 
 # 驳回原因（分类型）
 for k in KINDS:
@@ -292,9 +246,9 @@ for k in KINDS:
         msgs[(m[:32] + '…') if len(m) > 32 else m] += 1
     if msgs:
         L.append('')
-        L.append('❌ 今日驳回原因（%s）' % k)
-        for m, n in msgs.most_common(4):
-            L.append('   • %s  ×%d' % (m, n))
+        L.append('❌ 今日驳回（%s）' % k)
+        for m, n in msgs.most_common(2):
+            L.append('   • %s ×%d' % (m, n))
 
 # ---------- 店铺维度（类型 × 提交人）----------
 SH = {}
@@ -329,30 +283,45 @@ for r in aud_today:
 def act(d):
     return sum(d[k]['sub'] + d[k]['audN'] for k in KINDS)
 
-if SH:
-    def tot(d):
-        return sum(d[k]['total'] for k in KINDS)
-    def totAI(d):
-        return sum(d[k]['totAI'] for k in KINDS)
-    def totMan(d):
-        return sum(d[k]['totMan'] for k in KINDS)
-    order = sorted(SH.items(), key=lambda kv: (-act(kv[1]), -tot(kv[1])))
+# ---------- 店铺明细（今日新增 + 累计，一张表）----------
+_shops = set(NEW_SHOP) | set(SH)
+_rows = []
+for _s in _shops:
+    _nq = NEW_SHOP.get(_s, {}).get('品退', [0, 0])
+    _nr = NEW_SHOP.get(_s, {}).get('中差评', [0, 0])
+    _d = SH.get(_s) or {}
+    _t = sum(_d[k]['total'] for k in KINDS) if _d else 0
+    _o = sum(_d[k]['ok'] for k in KINDS) if _d else 0
+    _b = sum(_d[k]['bad'] for k in KINDS) if _d else 0
+    if not (_nq[0] or _nr[0] or _t):
+        continue
+    _rows.append((_s, _nq, _nr, _nq[1] + _nr[1], _t, _o, _b))
+_rows.sort(key=lambda r: (-(r[1][0] + r[2][0]), -r[4]))
+
+if _rows:
+    def _dw(s):
+        n = 0
+        for c in str(s):
+            o = ord(c)
+            n += 2 if (0x1100 <= o <= 0x115F or 0x2E80 <= o <= 0xA4CF or 0xAC00 <= o <= 0xD7A3
+                        or 0xF900 <= o <= 0xFAFF or 0xFE30 <= o <= 0xFE6F or 0xFF00 <= o <= 0xFF60
+                        or 0xFFE0 <= o <= 0xFFE6 or 0x20000 <= o <= 0x3FFFD) else 1
+        return n
+
+    def _pad(s, w):
+        return str(s) + ' ' * max(1, w - _dw(s))
+
+    _w = max(_dw(r[0]) for r in _rows) + 2
     L.append('')
-    L.append('🏪 店铺维度（累计：品退/中差评 单量·成功·失败·通过率；末行 AI/人工 合计）')
-    for s, d in order:
-        if not tot(d):
-            continue
-        L.append('• %s%s' % (s, '   ★今日有动作' if act(d) else ''))
-        for k in KINDS:
-            x = d[k]
-            if not x['total']:
-                continue
-            L.append('   累计 %-4s %d 单 ｜ 成功 %d · 失败 %d · 通过率 %d%%' % (
-                k, x['total'], x['ok'], x['bad'], rate(x['ok'], x['bad'])))
-            if x['sub'] or x['audN']:
-                L.append('        今日 %-4s 提交 %d（成%d 败%d 审%d）· 出结果 %d' % (
-                    k, x['sub'], x['pass'], x['rej'], x['wait'], x['audN']))
-        L.append('   └ 累计提交 AI %d · 人工 %d' % (totAI(d), totMan(d)))
+    L.append('🏪 店铺明细（今日 品退/中差评 · 可申诉 ｜ 累计提交 · 通过率）')
+    for _s, _nq, _nr, _aok, _t, _o, _b in _rows:
+        L.append('  %s%s %4s  %5d  %5s' % (
+            _pad(_s, _w), '%d/%d' % (_nq[0], _nr[0]), _aok or '-', _t,
+            ('%d%%' % rate(_o, _b)) if (_o or _b) else '-'))
+    L.append('  %s' % ('─' * (_w + 26)))
+    L.append('  %s%s %4d  %5d  %5s' % (
+        _pad('合计', _w), '%d/%d' % (NEW['品退']['n'], NEW['中差评']['n']),
+        NEW['品退']['ok'] + NEW['中差评']['ok'], _all, '%d%%' % rate(_ok, _bad)))
 
 L.append('')
 L.append('（数据源：抖店举报记录 + 本地提交日志；%s）' % ('本次已刷新' if os.environ.get('SYNCED') == '1' else '本次未刷新，沿用上次'))
