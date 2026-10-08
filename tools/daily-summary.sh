@@ -21,6 +21,31 @@ if [ -z "${P:-}" ] || [ -z "${T:-}" ]; then
   P=$(/usr/bin/plutil -extract port raw -o - "$BRIDGE" 2>/dev/null)
   T=$(/usr/bin/plutil -extract token raw -o - "$BRIDGE" 2>/dev/null)
 fi
+# ---------- ⓪ 补齐当天采集（不采集的话日报里的"今日"只到早上7点）----------
+call_bridge(){
+  printf 'header = "Authorization: Bearer %s"\n' "$T" | /usr/bin/curl --config - -s --max-time 60 --noproxy '*' \
+    -H 'Content-Type: application/json' -H 'X-ShopDesk-Client: cron' --data-binary "$1" "http://127.0.0.1:$P/call" 2>/dev/null
+}
+if [ "${SKIP_COLLECT:-0}" = "1" ]; then
+  say "SKIP_COLLECT=1，跳过当天采集"
+elif [ -n "${P:-}" ] && [ -n "${T:-}" ]; then
+  for _key in builtin:quality_returns builtin:negative_reviews; do
+    _job=$(call_bridge "{\"method\":\"start_collector\",\"args\":{\"key\":\"$_key\"}}")
+    _id=$(printf '%s' "$_job" | /usr/bin/python3 -c 'import sys,json
+try: print((json.load(sys.stdin).get("result") or {}).get("id",""))
+except Exception: print("")' 2>/dev/null)
+    if [ -z "$_id" ]; then say "采集 $_key 启动失败: $(printf '%s' "$_job" | head -c 200)"; continue; fi
+    say "采集 $_key 启动（id=$_id）"
+    for _i in $(seq 1 90); do
+      sleep 5
+      _st=$(call_bridge "{\"method\":\"get_collector_job\",\"args\":{\"id\":\"$_id\"}}" | /usr/bin/python3 -c 'import sys,json
+try: print((json.load(sys.stdin).get("result") or {}).get("status",""))
+except Exception: print("")' 2>/dev/null)
+      case "$_st" in done|error|cancelled|failed) say "采集 $_key 结束: $_st"; break;; esac
+    done
+  done
+fi
+
 SYNCED=0
 if [ "${SKIP_SYNC:-0}" = "1" ]; then
   say "SKIP_SYNC=1，跳过结果刷新（仅预览日报格式）"
@@ -43,7 +68,7 @@ fi
 
 # ---------- ②③④ 汇总 ----------
 SYNCED="$SYNCED" OUT="$OUT" /usr/bin/python3 - <<'PY'
-import json, os, time, base64, hmac, hashlib, datetime, collections, urllib.request, subprocess
+import json, os, time, base64, hmac, hashlib, datetime, collections, urllib.request, subprocess, glob
 
 app = os.path.expanduser('~/Library/Application Support/shopdesk')
 rd = os.path.join(app, 'appeal-reports')
@@ -158,24 +183,30 @@ try:
 except Exception:
     pass
 try:
-    _p = os.path.join(app, 'business-data', 'reviews-detail-latest.json')
-    _mt = datetime.datetime.fromtimestamp(os.path.getmtime(_p)).strftime('%m-%d %H:%M')
-    if _mt > COLLECTED_AT:
-        COLLECTED_AT = _mt
+    _fs = sorted(glob.glob(os.path.join(app, 'business-data', 'reviews-all-*.json')))
+    if _fs:
+        _mt = datetime.datetime.fromtimestamp(os.path.getmtime(_fs[-1])).strftime('%m-%d %H:%M')
+        if _mt > COLLECTED_AT:
+            COLLECTED_AT = _mt
     seen_r = set()
-    for r in json.load(open(_p)) or []:
+    for _f in _fs:                      # 批次文件是增量的，要全部合并去重
         try:
-            if int(r.get('rank') or 5) > 3:      # 只要中差评
-                continue
+            _d = json.load(open(_f))
         except Exception:
             continue
-        oid = str(r.get('order_id') or r.get('review_id') or '')
-        if not oid or oid in seen_r:
-            continue
-        seen_r.add(oid)
-        if str(r.get('date') or '')[:10] != today:
-            continue
-        bump(r.get('shop'), '中差评', not r.get('photo_count') and not r.get('video_count'))
+        for r in (_d if isinstance(_d, list) else (_d.get('all_reviews') or [])):
+            try:
+                if int(r.get('rank') or 5) > 3:      # 只要中差评
+                    continue
+            except Exception:
+                continue
+            oid = str(r.get('order_id') or '')
+            if not oid or oid in seen_r:
+                continue
+            seen_r.add(oid)
+            if str(r.get('comment_date') or '')[:10] != today:
+                continue
+            bump(r.get('shop'), '中差评', emo(r.get('content')) and not r.get('has_media'))
 except Exception:
     pass
 
