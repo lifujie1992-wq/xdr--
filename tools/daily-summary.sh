@@ -360,30 +360,25 @@ if _rows:
         return str(s) + ' ' * max(1, w - _dw(s))
 
     _w = max(_dw(r[0]) for r in _rows) + 2
-    _g1, _g2, _g3, _g4, _g5 = 6, 8, 8, 6, 8
-
-    def _p1(a, b, c):
-        return _pd(a, _g1) + _pd(b, _g2) + _pd(c, _g3)
-
-    def _p2(a, b, c):
-        return _pd(a, _g4) + _pd(b, _g5) + _pd(c, _g3)
+    _c1, _c2, _c3 = 13, 11, 13
 
     L.append('')
-    L.append('🏪 店铺明细')
-    L.append('  %s│ %s│ %s' % (
-        _pd('店铺', _w), _pd('今日产生（平台）', _g1 + _g2 + _g3), '累计举报（我们）'))
-    L.append('  %s│ %s│ %s' % (
-        _pd('', _w), _p1('品退', '中差评', '可申诉'), _p2('品退', '中差评', '通过率')))
-    L.append('  ' + '─' * (_w + _g1 + _g2 + _g3 + _g4 + _g5 + _g3 + 8))
+    L.append('🏪 店铺明细（今日平台产生 ｜ 累计举报通过率）')
+    L.append('  %s%s%s%s' % (
+        _pd('店铺', _w), _pd('品退/中差评', _c1), _pd('品退通过率', _c2), '中差评通过率'))
+    L.append('  ' + '─' * (_w + _c1 + _c2 + _c3))
     for _s, _nq, _nr, _aok, _cq, _cr, _t, _o, _b in _rows:
-        L.append('  %s│ %s│ %s' % (
-            _pad(_s, _w), _p1(_nq[0], _nr[0], _aok or '-'),
-            _p2(_cq or '-', _cr or '-', ('%d%%' % rate(_o, _b)) if (_o or _b) else '-')))
-    L.append('  ' + '─' * (_w + _g1 + _g2 + _g3 + _g4 + _g5 + _g3 + 8))
-    L.append('  %s│ %s│ %s' % (
-        _pad('合计', _w),
-        _p1(NEW['品退']['n'], NEW['中差评']['n'], NEW['品退']['ok'] + NEW['中差评']['ok']),
-        _p2(T['品退']['total'], T['中差评']['total'], '%d%%' % rate(_ok, _bad))))
+        _dq = SH.get(_s, {}).get('品退') or {}
+        _dr = SH.get(_s, {}).get('中差评') or {}
+        _rq2 = ('%d%%' % rate(_dq.get('ok', 0), _dq.get('bad', 0))) if (_dq.get('ok') or _dq.get('bad')) else '-'
+        _rr2 = ('%d%%' % rate(_dr.get('ok', 0), _dr.get('bad', 0))) if (_dr.get('ok') or _dr.get('bad')) else '-'
+        L.append('  %s%s%s%s' % (
+            _pad(_s, _w), _pd('%d / %d' % (_nq[0], _nr[0]), _c1), _pd(_rq2, _c2), _rr2))
+    L.append('  ' + '─' * (_w + _c1 + _c2 + _c3))
+    L.append('  %s%s%s%s' % (
+        _pad('合计', _w), _pd('%d / %d' % (NEW['品退']['n'], NEW['中差评']['n']), _c1),
+        _pd('%d%%' % rate(T['品退']['ok'], T['品退']['bad']), _c2),
+        '%d%%' % rate(T['中差评']['ok'], T['中差评']['bad'])))
 
 L.append('')
 L.append('（数据源：抖店举报记录 + 本地提交日志；%s%s）' % (
@@ -495,14 +490,18 @@ try:
             _els.append({'tag': 'hr'})
             _els.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content': '**【店铺明细】**'}})
             _els.append({'tag': 'column_set', 'flex_mode': 'none', 'columns': [
-                _col('**店铺**', 4), _col('**平台今日产生**\n品退/中差评/可申诉', 4),
-                _col('**我们累计举报**\n单数/通过率', 4)]})
+                _col('**店铺**', 4), _col('**品退/中差评**', 3),
+                _col('**品退通过率**', 3), _col('**中差评通过率**', 3)]})
             for _s, _nq, _nr, _aok, _cq, _cr, _t2, _o2, _b2 in _act:
-                _right = ('%d 单 · %d%%' % (_t2, rate(_o2, _b2))) if _t2 else '未提交'
+                _dq = SH.get(_s, {}).get('品退') or {}
+                _dr = SH.get(_s, {}).get('中差评') or {}
+                _rq2 = ('**%d%%**' % rate(_dq.get('ok', 0), _dq.get('bad', 0))) if (_dq.get('ok') or _dq.get('bad')) else '-'
+                _rr2 = ('**%d%%**' % rate(_dr.get('ok', 0), _dr.get('bad', 0))) if (_dr.get('ok') or _dr.get('bad')) else '-'
                 _els.append({'tag': 'column_set', 'flex_mode': 'none', 'columns': [
                     _col('**%s**' % _s, 4),
-                    _col('%d / %d / %d' % (_nq[0], _nr[0], _aok), 4),
-                    _col(_right, 4)]})
+                    _col('%d / %d' % (_nq[0], _nr[0]), 3),
+                    _col(_rq2, 3),
+                    _col(_rr2, 3)]})
             if len(_rows) > len(_act):
                 _els.append({'tag': 'note', 'elements': [{'tag': 'plain_text', 'content': '另有 %d 家店今日无动作' % (len(_rows) - len(_act))}]})
         # 驳回原因
