@@ -167,27 +167,30 @@ def emo(t):
     s = str(t or '').strip().strip('。.！!~～,，、；;？?　 \t\n')
     return (not s) or (s in PURE_EMOTION)
 
-NEW = {k: {'n': 0, 'ok': 0} for k in KINDS}
+NEW = {k: {'n': 0, 'ok': 0} for k in KINDS}      # 平台今日产生
+CUM = {k: {'n': 0, 'ok': 0} for k in KINDS}      # 平台累计产生（自统计口径起）
 NEW_SHOP = {}          # {店铺: {'品退':[总,可申诉], '中差评':[总,可申诉]}}
 COLLECTED_AT = ''
 
-def bump(shop, k, ok):
-    d = NEW_SHOP.setdefault(shop or '(未知店铺)', {})
-    e = d.setdefault(k, [0, 0])
-    e[0] += 1
-    if ok:
-        e[1] += 1
-    NEW[k]['n'] += 1
-    if ok:
-        NEW[k]['ok'] += 1
+
+def add(k, shop, d, ok):
+    """d=该单在平台的日期；今日计入 NEW，>=统计口径计入 CUM"""
+    if d == today:
+        NEW[k]['n'] += 1
+        NEW[k]['ok'] += 1 if ok else 0
+        e = NEW_SHOP.setdefault(shop or '(未知店铺)', {}).setdefault(k, [0, 0])
+        e[0] += 1
+        e[1] += 1 if ok else 0
+    c = CUTOFF.get(k) or ''
+    if (not c) or (d and d >= c):
+        CUM[k]['n'] += 1
+        CUM[k]['ok'] += 1 if ok else 0
 
 try:
     _p = os.path.join(app, 'business-data', 'quality-all-latest.json')
     COLLECTED_AT = datetime.datetime.fromtimestamp(os.path.getmtime(_p)).strftime('%m-%d %H:%M')
     for r in json.load(open(_p)):
-        if str(r.get('apply_date') or '')[:10] != today:
-            continue
-        bump(r.get('shop'), '品退', r.get('appealable') is True)
+        add('品退', r.get('shop'), str(r.get('apply_date') or '')[:10], r.get('appealable') is True)
 except Exception:
     pass
 try:
@@ -212,9 +215,8 @@ try:
             if not oid or oid in seen_r:
                 continue
             seen_r.add(oid)
-            if str(r.get('comment_date') or '')[:10] != today:
-                continue
-            bump(r.get('shop'), '中差评', emo(r.get('content')) and not r.get('has_media'))
+            add('中差评', r.get('shop'), str(r.get('comment_date') or '')[:10],
+                emo(r.get('content')) and not r.get('has_media'))
 except Exception:
     pass
 
@@ -246,7 +248,7 @@ _bad = sum(T[k]['bad'] for k in KINDS)
 _p = sum(A[k]['audPass'] for k in KINDS)
 _r = sum(A[k]['audRej'] for k in KINDS)
 _NQ, _NR = '品退', '中差评'
-_LW, _CW = 12, 10
+_LW, _CW = 16, 10
 _BAR = '  ' + '─' * (_LW + _CW * 3)
 
 
@@ -254,18 +256,19 @@ def _row(lab, a, b, c):
     return '  %s%s%s%s' % (_pd(lab, _LW), _pd(a, _CW), _pd(b, _CW), _pd(c, _CW))
 
 
+L.append('  【平台产生】')
 L.append(_row('项目', _NQ, _NR, '合计'))
 L.append(_BAR)
-_m = [
-    ('今日新增', NEW['品退']['n'], NEW['中差评']['n']),
-    ('  可申诉', NEW['品退']['ok'], NEW['中差评']['ok']),
-    ('今日提交', G['品退']['sub'], G['中差评']['sub']),
-    ('今日出结果', A['品退']['audN'], A['中差评']['audN']),
-]
-for _lab, _a, _b in _m:
+for _lab, _a, _b in (
+        ('今日新增', NEW['品退']['n'], NEW['中差评']['n']),
+        ('  其中可申诉', NEW['品退']['ok'], NEW['中差评']['ok']),
+        ('累计新增', CUM['品退']['n'], CUM['中差评']['n']),
+        ('  其中可申诉', CUM['品退']['ok'], CUM['中差评']['ok'])):
     L.append(_row(_lab, _a, _b, _a + _b))
 L.append(_BAR)
+L.append('  【我们的举报】')
 for _lab, _va, _vb, _vt in (
+        ('今日提交', G['品退']['sub'], G['中差评']['sub'], tot_sub),
         ('累计提交', T['品退']['total'], T['中差评']['total'], _all),
         ('  成功', T['品退']['ok'], T['中差评']['ok'], _ok),
         ('  失败', T['品退']['bad'], T['中差评']['bad'], _bad)):
@@ -457,15 +460,22 @@ try:
         _rq = rate(T['品退']['ok'], T['品退']['bad'])
         _rr = rate(T['中差评']['ok'], T['中差评']['bad'])
         _els = [
+            {'tag': 'div', 'text': {'tag': 'lark_md', 'content': '**【平台产生】**'}},
             {'tag': 'div', 'fields': [
                 _fx('今日新增', '品退 **%d** ｜ 中差评 **%d**' % (NEW['品退']['n'], NEW['中差评']['n'])),
-                _fx('其中可申诉', '品退 **%d** ｜ 中差评 **%d**' % (NEW['品退']['ok'], NEW['中差评']['ok'])),
+                _fx('今日可申诉', '品退 **%d** ｜ 中差评 **%d**' % (NEW['品退']['ok'], NEW['中差评']['ok'])),
+                _fx('累计新增', '品退 **%d** ｜ 中差评 **%d**' % (CUM['品退']['n'], CUM['中差评']['n'])),
+                _fx('累计可申诉', '品退 **%d** ｜ 中差评 **%d**' % (CUM['品退']['ok'], CUM['中差评']['ok'])),
+            ]},
+            {'tag': 'hr'},
+            {'tag': 'div', 'text': {'tag': 'lark_md', 'content': '**【我们的举报】**'}},
+            {'tag': 'div', 'fields': [
                 _fx('今日提交', '**%d** 单' % tot_sub),
-                _fx('今日出结果', '**%d** 单（✅%d ❌%d）' % (tot_aud, _p, _r)),
                 _fx('累计提交', '**%d** 单（品退 %d ｜ 中差评 %d）' % (_all, T['品退']['total'], T['中差评']['total'])),
                 _fx('累计通过率', '**%d%%**（品退 %d%% ｜ 中差评 %d%%）' % (rate(_ok, _bad), _rq, _rr)),
-                _fx('AI 提交', '%d 单 · 通过率 **%d%%**' % (W['AI']['total'], rate(W['AI']['ok'], W['AI']['bad']))),
-                _fx('人工提交', '%d 单 · 通过率 **%d%%**' % (W['人工']['total'], rate(W['人工']['ok'], W['人工']['bad']))),
+                _fx('提交人', 'AI %d（%d%%）· 人工 %d（%d%%）' % (
+                    W['AI']['total'], rate(W['AI']['ok'], W['AI']['bad']),
+                    W['人工']['total'], rate(W['人工']['ok'], W['人工']['bad']))),
             ]},
         ]
         # 店铺（今日有动作的，最多 12 家）
