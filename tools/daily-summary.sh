@@ -7,6 +7,7 @@ RD="$APP/appeal-reports"
 BRIDGE="$APP/agent-bridge.json"
 LOG="$RD/daily-summary.log"
 OUT="$RD/summary-$(date +%F).txt"
+if [ -n "${SUMMARY_DATE:-}" ]; then OUT="$RD/summary-$SUMMARY_DATE.txt"; fi
 mkdir -p "$RD"
 say(){ echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 say "==== 每日汇总开始 ===="
@@ -73,7 +74,7 @@ import json, os, time, base64, hmac, hashlib, datetime, collections, urllib.requ
 app = os.path.expanduser('~/Library/Application Support/shopdesk')
 rd = os.path.join(app, 'appeal-reports')
 out = os.environ['OUT']
-today = datetime.date.today().isoformat()
+today = os.environ.get('SUMMARY_DATE') or datetime.date.today().isoformat()
 KINDS = ['品退', '中差评']
 WHOS = ['AI', '人工']
 
@@ -242,6 +243,8 @@ tot_aud = sum(A[k]['audN'] for k in KINDS)
 _all = sum(T[k]['total'] for k in KINDS)
 _ok = sum(T[k]['ok'] for k in KINDS)
 _bad = sum(T[k]['bad'] for k in KINDS)
+_p = sum(A[k]['audPass'] for k in KINDS)
+_r = sum(A[k]['audRej'] for k in KINDS)
 _NQ, _NR = '品退', '中差评'
 _LW, _CW = 12, 10
 _BAR = '  ' + '─' * (_LW + _CW * 3)
@@ -443,12 +446,62 @@ try:
 except Exception as e:
     print('推云端失败:', e)
 
-# 飞书
+# 飞书：用交互卡片（普通文本的表格在飞书里会错位）
 try:
     cfg = json.load(open(os.path.join(app, 'alert-webhook.json')))
     url, secret = str(cfg.get('url') or '').strip(), str(cfg.get('secret') or '').strip()
     if url:
-        payload = {'msg_type': 'text', 'content': {'text': text}}
+        def _fx(label, val):
+            return {'is_short': True, 'text': {'tag': 'lark_md', 'content': '**%s**\n%s' % (label, val)}}
+
+        _rq = rate(T['品退']['ok'], T['品退']['bad'])
+        _rr = rate(T['中差评']['ok'], T['中差评']['bad'])
+        _els = [
+            {'tag': 'div', 'fields': [
+                _fx('今日新增', '品退 **%d** ｜ 中差评 **%d**' % (NEW['品退']['n'], NEW['中差评']['n'])),
+                _fx('其中可申诉', '品退 **%d** ｜ 中差评 **%d**' % (NEW['品退']['ok'], NEW['中差评']['ok'])),
+                _fx('今日提交', '**%d** 单' % tot_sub),
+                _fx('今日出结果', '**%d** 单（✅%d ❌%d）' % (tot_aud, _p, _r)),
+                _fx('累计提交', '**%d** 单（品退 %d ｜ 中差评 %d）' % (_all, T['品退']['total'], T['中差评']['total'])),
+                _fx('累计通过率', '**%d%%**（品退 %d%% ｜ 中差评 %d%%）' % (rate(_ok, _bad), _rq, _rr)),
+                _fx('AI 提交', '%d 单 · 通过率 **%d%%**' % (W['AI']['total'], rate(W['AI']['ok'], W['AI']['bad']))),
+                _fx('人工提交', '%d 单 · 通过率 **%d%%**' % (W['人工']['total'], rate(W['人工']['ok'], W['人工']['bad']))),
+            ]},
+        ]
+        # 店铺（今日有动作的，最多 12 家）
+        _act = [x for x in _rows if (x[1][0] or x[2][0])][:12]
+        if _act:
+            _els.append({'tag': 'hr'})
+            _els.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content': '**店铺（今日有动作）**'}})
+            for _s, _nq, _nr, _aok, _cq, _cr, _t2, _o2, _b2 in _act:
+                _tail = ''
+                if _t2:
+                    _tail = '　｜　累计 %d 单 · %s' % (_t2, ('%d%%' % rate(_o2, _b2)) if (_o2 or _b2) else '审核中')
+                _els.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content':
+                    '**%s**　今日 品%d/评%d · 可申诉 %d%s' % (_s, _nq[0], _nr[0], _aok, _tail)}})
+            if len(_rows) > len(_act):
+                _els.append({'tag': 'note', 'elements': [{'tag': 'plain_text', 'content': '另有 %d 家店今日无动作' % (len(_rows) - len(_act))}]})
+        # 驳回原因
+        for _k in KINDS:
+            _c = collections.Counter()
+            for _rec in aud_today:
+                if kind_of(_rec) != _k:
+                    continue
+                _m = str(_rec.get('resultMsg') or '').replace('失败原因:', '').split(';平台建议')[0].strip()
+                if _m:
+                    _c[(_m[:40] + '…') if len(_m) > 40 else _m] += 1
+            if _c:
+                _els.append({'tag': 'hr'})
+                _els.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content': '**❌ 今日驳回（%s）**\n%s' % (
+                    _k, '\n'.join('· %s ×%d' % (m, n) for m, n in _c.most_common(3)))}})
+        _els.append({'tag': 'note', 'elements': [{'tag': 'plain_text', 'content':
+            '数据源：抖店举报记录+本地提交日志'
+            + ('；' + CUT_NOTE + '（已排除%d条早期测试数据）' % EXCLUDED if CUT_NOTE else '')
+            + ('；数据截至 ' + COLLECTED_AT + ' 采集' if COLLECTED_AT else '')}]})
+        payload = {'msg_type': 'interactive', 'card': {
+            'config': {'wide_screen_mode': True},
+            'header': {'template': 'blue', 'title': {'tag': 'plain_text', 'content': '抖店申诉日报 %s' % today}},
+            'elements': _els}}
         if secret:
             ts = str(int(time.time()))
             dig = hmac.new((ts + '\n' + secret).encode('utf-8'), digestmod=hashlib.sha256).digest()
@@ -456,10 +509,33 @@ try:
             payload['sign'] = base64.b64encode(dig).decode('utf-8')
         req = urllib.request.Request(url, data=json.dumps(payload, ensure_ascii=False).encode(),
                                      headers={'Content-Type': 'application/json'})
-        r = urllib.request.urlopen(req, timeout=10)
-        print('飞书:', r.status, r.read().decode()[:60])
+        if os.environ.get('FEISHU_DRY') == '1':
+            print('=== 飞书卡片预览 ===')
+            print(json.dumps(payload, ensure_ascii=False, indent=1))
+            _resp = '"code":0'
+        else:
+            _resp = urllib.request.urlopen(req, timeout=12).read().decode()
+        print('飞书卡片:', _resp[:80])
+        if '"code":0' not in _resp.replace(' ', ''):
+            raise RuntimeError('卡片发送失败，回退纯文本')
 except Exception as e:
-    print('飞书推送失败:', e)
+    print('飞书卡片失败，回退纯文本:', e)
+    try:
+        cfg = json.load(open(os.path.join(app, 'alert-webhook.json')))
+        url, secret = str(cfg.get('url') or '').strip(), str(cfg.get('secret') or '').strip()
+        if url:
+            payload = {'msg_type': 'text', 'content': {'text': text}}
+            if secret:
+                ts = str(int(time.time()))
+                dig = hmac.new((ts + '\n' + secret).encode('utf-8'), digestmod=hashlib.sha256).digest()
+                payload['timestamp'] = ts
+                payload['sign'] = base64.b64encode(dig).decode('utf-8')
+            req = urllib.request.Request(url, data=json.dumps(payload, ensure_ascii=False).encode(),
+                                         headers={'Content-Type': 'application/json'})
+            r = urllib.request.urlopen(req, timeout=10)
+            print('飞书文本:', r.status, r.read().decode()[:60])
+    except Exception as e2:
+        print('飞书推送失败:', e2)
 PY
 
 say "日报已生成: $OUT"
