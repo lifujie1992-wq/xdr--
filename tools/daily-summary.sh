@@ -109,6 +109,13 @@ def newrec():
             'total': 0, 'ok': 0, 'bad': 0, 'subAI': 0, 'subMan': 0,
             'totAI': 0, 'totMan': 0, 'audAI': 0, 'audMan': 0}
 
+# 统计口径：中差评 2026-10-05 之前为测试数据（通过率仅10%），不计入累计；品退不限
+CUTOFF = {'品退': '', '中差评': '2026-10-05'}
+_raw_n = len(recs)
+recs = [r for r in recs if not (CUTOFF.get(kind_of(r)) or '') or (norm(r.get('created')) or '0000-00-00') >= CUTOFF[kind_of(r)]]
+CUT_NOTE = ' '.join('%s自%s起' % (k, v) for k, v in CUTOFF.items() if v)
+EXCLUDED = _raw_n - len(recs)
+
 sub_today = [r for r in recs if norm(r.get('created')) == today]
 aud_today = [r for r in recs if norm(r.get('auditTime')) == today]
 
@@ -324,7 +331,9 @@ if _rows:
         NEW['品退']['ok'] + NEW['中差评']['ok'], _all, '%d%%' % rate(_ok, _bad)))
 
 L.append('')
-L.append('（数据源：抖店举报记录 + 本地提交日志；%s）' % ('本次已刷新' if os.environ.get('SYNCED') == '1' else '本次未刷新，沿用上次'))
+L.append('（数据源：抖店举报记录 + 本地提交日志；%s%s）' % (
+    ('统计口径：' + CUT_NOTE + '，已排除%d条早期测试数据；' % EXCLUDED) if CUT_NOTE else '',
+    '本次已刷新' if os.environ.get('SYNCED') == '1' else '本次未刷新，沿用上次'))
 text = '\n'.join(L)
 open(out, 'w', encoding='utf-8').write(text + '\n')
 print(text)
