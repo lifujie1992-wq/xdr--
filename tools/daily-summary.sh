@@ -109,8 +109,8 @@ def newrec():
             'total': 0, 'ok': 0, 'bad': 0, 'subAI': 0, 'subMan': 0,
             'totAI': 0, 'totMan': 0, 'audAI': 0, 'audMan': 0}
 
-# 统计口径：中差评 2026-10-05 之前为测试数据（通过率仅10%），不计入累计；品退不限
-CUTOFF = {'品退': '', '中差评': '2026-10-05'}
+# 统计口径：2026-10-05 之前为测试数据（中差评通过率仅10%），不计入累计
+CUTOFF = {'品退': '2026-10-05', '中差评': '2026-10-05'}
 _raw_n = len(recs)
 recs = [r for r in recs if not (CUTOFF.get(kind_of(r)) or '') or (norm(r.get('created')) or '0000-00-00') >= CUTOFF[kind_of(r)]]
 CUT_NOTE = ' '.join('%s自%s起' % (k, v) for k, v in CUTOFF.items() if v)
@@ -297,13 +297,15 @@ for _s in _shops:
     _nq = NEW_SHOP.get(_s, {}).get('品退', [0, 0])
     _nr = NEW_SHOP.get(_s, {}).get('中差评', [0, 0])
     _d = SH.get(_s) or {}
-    _t = sum(_d[k]['total'] for k in KINDS) if _d else 0
+    _cq = _d.get('品退', {}).get('total', 0) if _d else 0        # 累计品退
+    _cr = _d.get('中差评', {}).get('total', 0) if _d else 0      # 累计中差评
+    _t = _cq + _cr
     _o = sum(_d[k]['ok'] for k in KINDS) if _d else 0
     _b = sum(_d[k]['bad'] for k in KINDS) if _d else 0
     if not (_nq[0] or _nr[0] or _t):
         continue
-    _rows.append((_s, _nq, _nr, _nq[1] + _nr[1], _t, _o, _b))
-_rows.sort(key=lambda r: (-(r[1][0] + r[2][0]), -r[4]))
+    _rows.append((_s, _nq, _nr, _nq[1] + _nr[1], _cq, _cr, _t, _o, _b))
+_rows.sort(key=lambda r: (-(r[1][0] + r[2][0]), -r[6]))
 
 if _rows:
     def _dw(s):
@@ -320,15 +322,17 @@ if _rows:
 
     _w = max(_dw(r[0]) for r in _rows) + 2
     L.append('')
-    L.append('🏪 店铺明细（今日 品退/中差评 · 可申诉 ｜ 累计提交 · 通过率）')
-    for _s, _nq, _nr, _aok, _t, _o, _b in _rows:
-        L.append('  %s%s %4s  %5d  %5s' % (
-            _pad(_s, _w), '%d/%d' % (_nq[0], _nr[0]), _aok or '-', _t,
+    L.append('🏪 店铺明细（今日 品退/中差评 · 可申诉 ｜ 累计 品退/中差评 · 通过率）')
+    for _s, _nq, _nr, _aok, _cq, _cr, _t, _o, _b in _rows:
+        L.append('  %s%s %4s  %8s %5s  %5s' % (
+            _pad(_s, _w), '%d/%d' % (_nq[0], _nr[0]), _aok or '-',
+            ('%d/%d' % (_cq, _cr)) if _t else '-', _t or '-',
             ('%d%%' % rate(_o, _b)) if (_o or _b) else '-'))
-    L.append('  %s' % ('─' * (_w + 26)))
-    L.append('  %s%s %4d  %5d  %5s' % (
+    L.append('  %s' % ('─' * (_w + 34)))
+    L.append('  %s%s %4d  %8s %5d  %5s' % (
         _pad('合计', _w), '%d/%d' % (NEW['品退']['n'], NEW['中差评']['n']),
-        NEW['品退']['ok'] + NEW['中差评']['ok'], _all, '%d%%' % rate(_ok, _bad)))
+        NEW['品退']['ok'] + NEW['中差评']['ok'],
+        '%d/%d' % (T['品退']['total'], T['中差评']['total']), _all, '%d%%' % rate(_ok, _bad)))
 
 L.append('')
 L.append('（数据源：抖店举报记录 + 本地提交日志；%s%s）' % (
