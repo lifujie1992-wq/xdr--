@@ -220,26 +220,61 @@ except Exception:
 L = []
 L.append('【抖店申诉日报】%s%s' % (today, ('　数据截至 ' + COLLECTED_AT) if COLLECTED_AT else ''))
 L.append('')
-L.append('📥 今日新增　品退 %d（可申诉 %d）｜ 中差评 %d（可申诉 %d）　→ 合计可申诉 %d 单' % (
-    NEW['品退']['n'], NEW['品退']['ok'], NEW['中差评']['n'], NEW['中差评']['ok'],
-    NEW['品退']['ok'] + NEW['中差评']['ok']))
-if COLLECTED_AT:
-    L.append('　（当天剩余时段平台产生的，次日 07:00 入账）')
-L.append('')
 
+
+def _dw(s):
+    n = 0
+    for c in str(s):
+        o = ord(c)
+        n += 2 if (0x1100 <= o <= 0x115F or 0x2E80 <= o <= 0xA4CF or 0xAC00 <= o <= 0xD7A3
+                    or 0xF900 <= o <= 0xFAFF or 0xFE30 <= o <= 0xFE6F or 0xFF00 <= o <= 0xFF60
+                    or 0xFFE0 <= o <= 0xFFE6 or 0x20000 <= o <= 0x3FFFD) else 1
+    return n
+
+
+def _pd(s, w):
+    return str(s) + ' ' * max(0, w - _dw(s))
+
+
+T = T
 tot_sub = sum(G[k]['sub'] for k in KINDS)
 tot_aud = sum(A[k]['audN'] for k in KINDS)
-_p = sum(A[k]['audPass'] for k in KINDS)
-_r = sum(A[k]['audRej'] for k in KINDS)
 _all = sum(T[k]['total'] for k in KINDS)
 _ok = sum(T[k]['ok'] for k in KINDS)
 _bad = sum(T[k]['bad'] for k in KINDS)
-L.append('📤 今日提交 %d 单 ｜ 今日出结果 %d（✅%d ❌%d）' % (tot_sub, tot_aud, _p, _r))
-L.append('📊 累计提交 %d ｜ ✅%d ❌%d ｜ 通过率 %d%%' % (_all, _ok, _bad, rate(_ok, _bad)))
-L.append('　 按类型　品退 %d（%d%%）· 中差评 %d（%d%%）' % (
-    T['品退']['total'], rate(T['品退']['ok'], T['品退']['bad']),
-    T['中差评']['total'], rate(T['中差评']['ok'], T['中差评']['bad'])))
-L.append('　 按提交　%s' % (' · '.join('%s %d（%d%%）' % (w, W[w]['total'], rate(W[w]['ok'], W[w]['bad'])) for w in WHOS if W[w]['total'])))
+_NQ, _NR = '品退', '中差评'
+_LW, _CW = 12, 10
+_BAR = '  ' + '─' * (_LW + _CW * 3)
+
+
+def _row(lab, a, b, c):
+    return '  %s%s%s%s' % (_pd(lab, _LW), _pd(a, _CW), _pd(b, _CW), _pd(c, _CW))
+
+
+L.append(_row('项目', _NQ, _NR, '合计'))
+L.append(_BAR)
+_m = [
+    ('今日新增', NEW['品退']['n'], NEW['中差评']['n']),
+    ('  可申诉', NEW['品退']['ok'], NEW['中差评']['ok']),
+    ('今日提交', G['品退']['sub'], G['中差评']['sub']),
+    ('今日出结果', A['品退']['audN'], A['中差评']['audN']),
+]
+for _lab, _a, _b in _m:
+    L.append(_row(_lab, _a, _b, _a + _b))
+L.append(_BAR)
+for _lab, _va, _vb, _vt in (
+        ('累计提交', T['品退']['total'], T['中差评']['total'], _all),
+        ('  成功', T['品退']['ok'], T['中差评']['ok'], _ok),
+        ('  失败', T['品退']['bad'], T['中差评']['bad'], _bad)):
+    L.append(_row(_lab, _va, _vb, _vt))
+L.append(_row('  通过率', '%d%%' % rate(T['品退']['ok'], T['品退']['bad']),
+              '%d%%' % rate(T['中差评']['ok'], T['中差评']['bad']), '%d%%' % rate(_ok, _bad)))
+L.append(_BAR)
+_ai = sum(T[k]['totAI'] for k in KINDS)
+_mn = sum(T[k]['totMan'] for k in KINDS)
+L.append('  提交人　%s' % ' ｜ '.join(
+    '%s %d 单（%d%%）' % (w, W[w]['total'], rate(W[w]['ok'], W[w]['bad'])) for w in WHOS if W[w]['total']))
+L.append('')
 
 # 驳回原因（分类型）
 for k in KINDS:
@@ -322,17 +357,20 @@ if _rows:
 
     _w = max(_dw(r[0]) for r in _rows) + 2
     L.append('')
-    L.append('🏪 店铺明细（今日 品退/中差评 · 可申诉 ｜ 累计 品退/中差评 · 通过率）')
+    L.append('🏪 店铺明细（品退/中差评）')
+    L.append('  %s%s %6s │ %s %5s %5s' % (
+        _pd('店铺', _w), _pd('今日 品/评', 11), '可申诉', _pd('累计 品/评', 11), '提交', '通过率'))
+    L.append('  ' + '─' * (_w + 38))
     for _s, _nq, _nr, _aok, _cq, _cr, _t, _o, _b in _rows:
-        L.append('  %s%s %4s  %8s %5s  %5s' % (
-            _pad(_s, _w), '%d/%d' % (_nq[0], _nr[0]), _aok or '-',
-            ('%d/%d' % (_cq, _cr)) if _t else '-', _t or '-',
+        L.append('  %s%s %6s │ %s %5s %5s' % (
+            _pad(_s, _w), _pd('%d/%d' % (_nq[0], _nr[0]), 11), _aok or '-',
+            _pd(('%d/%d' % (_cq, _cr)) if _t else '-', 11), _t or '-',
             ('%d%%' % rate(_o, _b)) if (_o or _b) else '-'))
-    L.append('  %s' % ('─' * (_w + 34)))
-    L.append('  %s%s %4d  %8s %5d  %5s' % (
-        _pad('合计', _w), '%d/%d' % (NEW['品退']['n'], NEW['中差评']['n']),
+    L.append('  ' + '─' * (_w + 38))
+    L.append('  %s%s %6d │ %s %5d %5s' % (
+        _pad('合计', _w), _pd('%d/%d' % (NEW['品退']['n'], NEW['中差评']['n']), 11),
         NEW['品退']['ok'] + NEW['中差评']['ok'],
-        '%d/%d' % (T['品退']['total'], T['中差评']['total']), _all, '%d%%' % rate(_ok, _bad)))
+        _pd('%d/%d' % (T['品退']['total'], T['中差评']['total']), 11), _all, '%d%%' % rate(_ok, _bad)))
 
 L.append('')
 L.append('（数据源：抖店举报记录 + 本地提交日志；%s%s）' % (
