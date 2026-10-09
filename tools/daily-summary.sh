@@ -110,11 +110,11 @@ def newrec():
             'total': 0, 'ok': 0, 'bad': 0, 'subAI': 0, 'subMan': 0,
             'totAI': 0, 'totMan': 0, 'audAI': 0, 'audMan': 0}
 
-# 统计口径：2026-10-05 之前为测试数据（中差评通过率仅10%），不计入累计
-CUTOFF = {'品退': '2026-10-05', '中差评': '2026-10-05'}
+# 统计口径：排除测试窗口 2026-10-01~10-04（AI 批量测试，637条通过率仅8%）；其余全保留
+EX_LO, EX_HI = '2026-10-01', '2026-10-05'
 _raw_n = len(recs)
-recs = [r for r in recs if not (CUTOFF.get(kind_of(r)) or '') or (norm(r.get('created')) or '0000-00-00') >= CUTOFF[kind_of(r)]]
-CUT_NOTE = ' '.join('%s自%s起' % (k, v) for k, v in CUTOFF.items() if v)
+recs = [r for r in recs if not (EX_LO <= (norm(r.get('created')) or '0000-00-00') < EX_HI)]
+CUT_NOTE = '已排除 %s~%s 测试数据' % (EX_LO, '2026-10-04')
 EXCLUDED = _raw_n - len(recs)
 
 sub_today = [r for r in recs if norm(r.get('created')) == today]
@@ -174,17 +174,15 @@ COLLECTED_AT = ''
 
 
 def add(k, shop, d, ok):
-    """d=该单在平台的日期；今日计入 NEW，>=统计口径计入 CUM"""
+    """d=该单在平台的日期；今日计入 NEW；全量计入 CUM（平台近30天）"""
     if d == today:
         NEW[k]['n'] += 1
         NEW[k]['ok'] += 1 if ok else 0
         e = NEW_SHOP.setdefault(shop or '(未知店铺)', {}).setdefault(k, [0, 0])
         e[0] += 1
         e[1] += 1 if ok else 0
-    c = CUTOFF.get(k) or ''
-    if (not c) or (d and d >= c):
-        CUM[k]['n'] += 1
-        CUM[k]['ok'] += 1 if ok else 0
+    CUM[k]['n'] += 1
+    CUM[k]['ok'] += 1 if ok else 0
 
 try:
     _p = os.path.join(app, 'business-data', 'quality-all-latest.json')
@@ -262,7 +260,7 @@ L.append(_BAR)
 for _lab, _a, _b in (
         ('今日新增', NEW['品退']['n'], NEW['中差评']['n']),
         ('  其中可申诉', NEW['品退']['ok'], NEW['中差评']['ok']),
-        ('累计新增', CUM['品退']['n'], CUM['中差评']['n']),
+        ('近30天新增', CUM['品退']['n'], CUM['中差评']['n']),
         ('  其中可申诉', CUM['品退']['ok'], CUM['中差评']['ok'])):
     L.append(_row(_lab, _a, _b, _a + _b))
 L.append(_BAR)
@@ -380,7 +378,7 @@ if _rows:
 
 L.append('')
 L.append('（数据源：抖店举报记录 + 本地提交日志；%s%s）' % (
-    ('统计口径：' + CUT_NOTE + '，已排除%d条早期测试数据；' % EXCLUDED) if CUT_NOTE else '',
+    ('统计口径：' + CUT_NOTE + '，共 %d 条；' % EXCLUDED) if CUT_NOTE else '',
     '本次已刷新' if os.environ.get('SYNCED') == '1' else '本次未刷新，沿用上次'))
 text = '\n'.join(L)
 open(out, 'w', encoding='utf-8').write(text + '\n')
@@ -464,8 +462,8 @@ try:
             {'tag': 'div', 'fields': [
                 _fx('今日新增', '品退 **%d** ｜ 中差评 **%d**' % (NEW['品退']['n'], NEW['中差评']['n'])),
                 _fx('今日可申诉', '品退 **%d** ｜ 中差评 **%d**' % (NEW['品退']['ok'], NEW['中差评']['ok'])),
-                _fx('累计新增', '品退 **%d** ｜ 中差评 **%d**' % (CUM['品退']['n'], CUM['中差评']['n'])),
-                _fx('累计可申诉', '品退 **%d** ｜ 中差评 **%d**' % (CUM['品退']['ok'], CUM['中差评']['ok'])),
+                _fx('近30天新增', '品退 **%d** ｜ 中差评 **%d**' % (CUM['品退']['n'], CUM['中差评']['n'])),
+                _fx('近30天可申诉', '品退 **%d** ｜ 中差评 **%d**' % (CUM['品退']['ok'], CUM['中差评']['ok'])),
             ]},
             {'tag': 'hr'},
             {'tag': 'div', 'text': {'tag': 'lark_md', 'content': '**【我们的举报】**'}},
@@ -506,7 +504,7 @@ try:
                     _k, '\n'.join('· %s ×%d' % (m, n) for m, n in _c.most_common(3)))}})
         _els.append({'tag': 'note', 'elements': [{'tag': 'plain_text', 'content':
             '数据源：抖店举报记录+本地提交日志'
-            + ('；' + CUT_NOTE + '（已排除%d条早期测试数据）' % EXCLUDED if CUT_NOTE else '')
+            + ('；' + CUT_NOTE + '（%d 条）' % EXCLUDED if CUT_NOTE else '')
             + ('；数据截至 ' + COLLECTED_AT + ' 采集' if COLLECTED_AT else '')}]})
         payload = {'msg_type': 'interactive', 'card': {
             'config': {'wide_screen_mode': True},
