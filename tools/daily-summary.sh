@@ -485,17 +485,24 @@ try:
                     W['人工']['total'], rate(W['人工']['ok'], W['人工']['bad']))),
             ]},
         ]
-        # 店铺（今日有动作的，最多 12 家）
+        # 店铺：用 column_set 做真正的列（普通行会在飞书里挤成一团）
         _act = [x for x in _rows if (x[1][0] or x[2][0])][:12]
         if _act:
+            def _col(txt, wt):
+                return {'tag': 'column', 'width': 'weighted', 'weight': wt,
+                        'elements': [{'tag': 'div', 'text': {'tag': 'lark_md', 'content': txt}}]}
+
             _els.append({'tag': 'hr'})
-            _els.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content': '**店铺（今日有动作）**'}})
+            _els.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content': '**【店铺明细】**'}})
+            _els.append({'tag': 'column_set', 'flex_mode': 'none', 'columns': [
+                _col('**店铺**', 4), _col('**平台今日产生**\n品退/中差评/可申诉', 4),
+                _col('**我们累计举报**\n单数/通过率', 4)]})
             for _s, _nq, _nr, _aok, _cq, _cr, _t2, _o2, _b2 in _act:
-                _tail = ''
-                if _t2:
-                    _tail = '　｜　累计 %d 单 · %s' % (_t2, ('%d%%' % rate(_o2, _b2)) if (_o2 or _b2) else '审核中')
-                _els.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content':
-                    '**%s**　今日 品%d/评%d · 可申诉 %d%s' % (_s, _nq[0], _nr[0], _aok, _tail)}})
+                _right = ('%d 单 · %d%%' % (_t2, rate(_o2, _b2))) if _t2 else '未提交'
+                _els.append({'tag': 'column_set', 'flex_mode': 'none', 'columns': [
+                    _col('**%s**' % _s, 4),
+                    _col('%d / %d / %d' % (_nq[0], _nr[0], _aok), 4),
+                    _col(_right, 4)]})
             if len(_rows) > len(_act):
                 _els.append({'tag': 'note', 'elements': [{'tag': 'plain_text', 'content': '另有 %d 家店今日无动作' % (len(_rows) - len(_act))}]})
         # 驳回原因
