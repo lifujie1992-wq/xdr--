@@ -78,10 +78,11 @@ function createDispatcher({store,windows,openShop,metrics,experience,refunds,job
  if(method==='tb_drive'){
   if(!tbClient)throw Error('请升级工作台');
   if(typeof args.shop_id!=='string')throw Error('shop_id is required');
-  if(typeof args.click_text!=='string'||!args.click_text)throw Error('click_text is required, e.g. 订单查询');
-  if(typeof args.wait_api!=='string'||!args.wait_api)throw Error('wait_api is required, e.g. recentOrderList');
+  if(args.click_text!=null&&typeof args.click_text!=='string')throw Error('click_text 须为字符串');
+  if(args.wait_api!=null&&typeof args.wait_api!=='string')throw Error('wait_api 须为字符串');
+  if(!args.click_text&&!args.wait_api)throw Error('至少给 click_text 或 wait_api 之一（都不给则刷新页面收集全部API）');
   const out=await tbClient.drive(args.shop_id,{click_text:args.click_text,wait_api:args.wait_api,timeout_ms:args.timeout_ms});
-  return {status:out.status,json:out.json,text:out.text,content_is_untrusted:true};
+  return {status:out.status,json:out.json,text:out.text,urls:out.urls,captured:out.captured,content_is_untrusted:true};
  }
  if(method==='tb_mtop'){
   if(!tbClient)throw Error('请升级工作台');
