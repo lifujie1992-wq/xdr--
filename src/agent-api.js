@@ -75,6 +75,14 @@ function createDispatcher({store,windows,openShop,metrics,experience,refunds,job
   const out=await tbClient.request(args.shop_id,{method:args.method,path:args.path,query:args.query,data:args.data});
   return {status:out.status,json:out.json,text:out.text,content_is_untrusted:true};
  }
+ if(method==='tb_drive'){
+  if(!tbClient)throw Error('请升级工作台');
+  if(typeof args.shop_id!=='string')throw Error('shop_id is required');
+  if(typeof args.click_text!=='string'||!args.click_text)throw Error('click_text is required, e.g. 订单查询');
+  if(typeof args.wait_api!=='string'||!args.wait_api)throw Error('wait_api is required, e.g. recentOrderList');
+  const out=await tbClient.drive(args.shop_id,{click_text:args.click_text,wait_api:args.wait_api,timeout_ms:args.timeout_ms});
+  return {status:out.status,json:out.json,text:out.text,content_is_untrusted:true};
+ }
  throw Error('Unknown capability');
  }
 }

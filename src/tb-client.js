@@ -85,7 +85,59 @@ function createTbClient({ store, windows, openShop }) {
     return out;
   }
 
-  return { request, ensurePage };
+  /**
+   * 驾驶模式：点击页面菜单让 SPA 自己发请求（Baxia 只拦注入调用，不拦页面自身请求），
+   * 主进程从 CDP Network 层抓目标接口的响应体。
+   * opts: { click_text: '订单查询', wait_api: 'recentOrderList', timeout_ms?: 15000 }
+   */
+  async function drive(shopId, opts = {}) {
+    const clickText = String(opts.click_text || '');
+    const waitApi = String(opts.wait_api || '');
+    if (!clickText || !waitApi) throw Error('click_text 与 wait_api 必填');
+    const timeoutMs = Math.min(Number(opts.timeout_ms) || 15000, 30000);
+    const wc = await ensurePage(shopId);
+
+    try { wc.debugger.attach('1.3'); } catch (e) { /* 已附加则复用 */ }
+    await wc.debugger.sendCommand('Network.enable').catch(() => {});
+
+    let rid = null;
+    const found = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { wc.debugger.removeListener('message', onMsg); reject(Error('等待 ' + waitApi + ' 响应超时（' + timeoutMs + 'ms）')); }, timeoutMs);
+      async function onMsg(_e, meth, p) {
+        try {
+          if (meth === 'Network.responseReceived' && p.response && p.response.url.includes(waitApi)) rid = p.requestId;
+          if (meth === 'Network.loadingFinished' && rid && p.requestId === rid) {
+            clearTimeout(timer); wc.debugger.removeListener('message', onMsg);
+            const body = await wc.debugger.sendCommand('Network.getResponseBody', { requestId: rid }).catch(() => null);
+            if (!body) return reject(Error('响应体获取失败'));
+            let j = null; try { j = JSON.parse(body.body); } catch (e) {}
+            resolve({ status: 200, json: j, text: j ? undefined : String(body.body).slice(0, 400) });
+          }
+        } catch (e) {}
+      }
+      wc.debugger.on('message', onMsg);
+    });
+
+    const clicked = await wc.executeJavaScript(`(function(){
+      const t = ${JSON.stringify(clickText)};
+      const els = [...document.querySelectorAll('a,div,span,li,[role=menuitem],[role=button],[class*=menu] *')].filter(e=>{
+        if (e.children.length > 2) return false;
+        if (!e.getClientRects().length) return false;
+        const s = getComputedStyle(e); if (s.visibility==='hidden'||s.display==='none') return false;
+        return (e.innerText||'').replace(/\\s+/g,'').trim() === t;
+      });
+      if (!els.length) return false;
+      const el = els[els.length-1];
+      ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(type=>{
+        el.dispatchEvent(new MouseEvent(type, {bubbles:true, cancelable:true, view:window}));
+      });
+      return true;
+    })()`, true);
+    if (!clicked) { wc.debugger.removeAllListeners('message'); throw Error('页面上找不到可点菜单: ' + clickText); }
+    return await found;
+  }
+
+  return { request, ensurePage, drive };
 }
 
 module.exports = { createTbClient };
