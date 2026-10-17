@@ -175,6 +175,8 @@ function createTbClient({ store, windows, openShop, sessionSnapshot }) {
       const forms = [
         (a, o) => window.lib.mtop.request(a, o),
         (a, o) => window.lib.mtop.request(Object.assign({api: a}, o)),
+        (a, o) => window.lib.mtop.request(a, Object.assign({}, o, {dataType: 'json'})),
+        (a, o) => window.lib.mtop.request(Object.assign({api: a}, o, {dataType: 'json'})),
       ];
       let lastRaw = '', lastErr = null;
       for (const f of forms) {

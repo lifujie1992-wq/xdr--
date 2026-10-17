@@ -90,7 +90,7 @@ function createDispatcher({store,windows,openShop,metrics,experience,refunds,job
   if(typeof args.api!=='string')throw Error('api is required');
   if(args.data!=null&&(typeof args.data!=='object'||Array.isArray(args.data)))throw Error('data 须为对象');
   const out=await tbClient.mtop(args.shop_id,{api:args.api,version:args.version,data:args.data,method:args.method});
-  return {ret:out.ret,data:out.data,content_is_untrusted:true};
+  return {ret:out.ret,data:out.data,raw:out.raw,content_is_untrusted:true};
  }
  throw Error('Unknown capability');
  }
