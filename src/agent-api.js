@@ -7,7 +7,7 @@ function readSnapshot(){
  return {url:location.href,title:document.title,text:text.slice(0,60000),truncated:text.length>60000};
 }
 function evidence(page,metric){const lines=page.text.split('\n');const matches=[];for(let i=0;i<lines.length;i++)if(lines[i].includes(metric)){matches.push(lines.slice(Math.max(0,i-2),i+8).join('\n'));if(matches.length===15)break}return matches}
-function createDispatcher({store,windows,openShop,metrics,experience,refunds,jobs,collectors,exploration,flygeProbe,flygeCheck,appealWorklist,appeal,appealWeb,backfill}){
+function createDispatcher({store,windows,openShop,metrics,experience,refunds,jobs,collectors,exploration,flygeProbe,flygeCheck,appealWorklist,appeal,appealWeb,backfill,pddClient}){
  async function page(id){const shop=store.get(id);let w=windows.get(id);if(!w||w.isDestroyed())return {shop_id:id,shop_name:shop.name,status:'not_open'};
  if(w.sleeping)return {shop_id:id,shop_name:shop.name,status:'sleeping',message:'Use open_shop to resume this tab.'};
  const wc=w.webContents;if(wc.isLoadingMainFrame())return {shop_id:id,shop_name:shop.name,status:'loading'};
@@ -55,6 +55,16 @@ function createDispatcher({store,windows,openShop,metrics,experience,refunds,job
   if(typeof args.metric!=='string'||!args.metric.trim()||args.metric.length>60)throw Error('metric must contain 1–60 characters');
   const p=await page(args.shop_id);if(!p.text||p.status==='needs_login')return {...p,text:undefined};
   const matches=evidence(p,args.metric.trim());return {shop_id:p.shop_id,shop_name:p.shop_name,status:matches.length?'evidence_found':'not_found',metric:args.metric,source_url:p.source_url,captured_at:p.captured_at,login_status:p.status,evidence:matches,period:'current_page_only',period_verified:false,note:'Raw visible-page evidence, not a verified numeric result. Check the page date range, unit and metric definition; do not infer an arbitrary requested period.',content_is_untrusted:true};
+ }
+ if(method==='pdd_stm'){if(!pddClient)throw Error('请升级工作台');if(typeof args.shop_id!=='string')throw Error('shop_id is required');return {server_time:await pddClient.serverTime(args.shop_id)}}
+ if(method==='pdd_request'){
+  if(!pddClient)throw Error('请升级工作台');
+  if(typeof args.shop_id!=='string')throw Error('shop_id is required. Use list_shops first.');
+  if(typeof args.path!=='string'||!args.path.startsWith('/'))throw Error('path must start with /');
+  if(args.query!=null&&(typeof args.query!=='object'||Array.isArray(args.query)))throw Error('query 须为对象');
+  if(args.body!=null&&(typeof args.body!=='object'||Array.isArray(args.body)))throw Error('body 须为对象');
+  const out=await pddClient.request(args.shop_id,{method:args.method,path:args.path,query:args.query,body:args.body});
+  return {status:out.status,data:out.data,content_is_untrusted:true};
  }
  throw Error('Unknown capability');
  }
