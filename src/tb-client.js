@@ -93,48 +93,64 @@ function createTbClient({ store, windows, openShop }) {
   async function drive(shopId, opts = {}) {
     const clickText = String(opts.click_text || '');
     const waitApi = String(opts.wait_api || '');
-    if (!clickText || !waitApi) throw Error('click_text 与 wait_api 必填');
-    const timeoutMs = Math.min(Number(opts.timeout_ms) || 15000, 30000);
+    const timeoutMs = Math.min(Number(opts.timeout_ms) || (waitApi ? 15000 : 12000), 45000);
     const wc = await ensurePage(shopId);
 
     try { wc.debugger.attach('1.3'); } catch (e) { /* 已附加则复用 */ }
     await wc.debugger.sendCommand('Network.enable').catch(() => {});
 
+    const captured = [];
     let rid = null;
-    const found = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { wc.debugger.removeListener('message', onMsg); reject(Error('等待 ' + waitApi + ' 响应超时（' + timeoutMs + 'ms）')); }, timeoutMs);
+    const result = new Promise((resolve, reject) => {
+      const finish = (fn, val) => { clearTimeout(timer); wc.debugger.removeListener('message', onMsg); fn(val); };
+      const timer = setTimeout(() => {
+        if (waitApi) finish(reject, Error('等待 ' + waitApi + ' 响应超时（' + timeoutMs + 'ms）'));
+        else finish(resolve, {status: 'captured', urls: captured.slice(0, 60)});
+      }, timeoutMs);
       async function onMsg(_e, meth, p) {
         try {
-          if (meth === 'Network.responseReceived' && p.response && p.response.url.includes(waitApi)) rid = p.requestId;
-          if (meth === 'Network.loadingFinished' && rid && p.requestId === rid) {
-            clearTimeout(timer); wc.debugger.removeListener('message', onMsg);
+          if (meth === 'Network.requestWillBeSent' && p.request && p.request.url) {
+            const u = String(p.request.url);
+            if (/^https?:/.test(u) && !/\.(js|css|png|jpe?g|gif|svg|woff2?|ttf|ico)(\?|$)/.test(u)
+                && !u.includes('gm.mmstat') && !u.includes('ynuf') && !u.includes('/aes.') && !u.includes('beacon')) {
+              captured.push({url: u.slice(0, 300), method: p.request.method,
+                postData: p.request.postData ? String(p.request.postData).slice(0, 800) : undefined});
+            }
+          }
+          if (meth === 'Network.responseReceived' && p.response && waitApi && p.response.url.includes(waitApi)) rid = p.requestId;
+          if (meth === 'Network.loadingFinished' && waitApi && rid && p.requestId === rid) {
             const body = await wc.debugger.sendCommand('Network.getResponseBody', { requestId: rid }).catch(() => null);
-            if (!body) return reject(Error('响应体获取失败'));
+            if (!body) return finish(reject, Error('响应体获取失败'));
             let j = null; try { j = JSON.parse(body.body); } catch (e) {}
-            resolve({ status: 200, json: j, text: j ? undefined : String(body.body).slice(0, 400) });
+            finish(resolve, { status: 200, json: j, text: j ? undefined : String(body.body).slice(0, 400), captured: captured.slice(0, 40) });
           }
         } catch (e) {}
       }
       wc.debugger.on('message', onMsg);
     });
 
-    const clicked = await wc.executeJavaScript(`(function(){
-      const t = ${JSON.stringify(clickText)};
-      const els = [...document.querySelectorAll('a,div,span,li,[role=menuitem],[role=button],[class*=menu] *')].filter(e=>{
-        if (e.children.length > 2) return false;
-        if (!e.getClientRects().length) return false;
-        const s = getComputedStyle(e); if (s.visibility==='hidden'||s.display==='none') return false;
-        return (e.innerText||'').replace(/\\s+/g,'').trim() === t;
-      });
-      if (!els.length) return false;
-      const el = els[els.length-1];
-      ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(type=>{
-        el.dispatchEvent(new MouseEvent(type, {bubbles:true, cancelable:true, view:window}));
-      });
-      return true;
-    })()`, true);
-    if (!clicked) { wc.debugger.removeAllListeners('message'); throw Error('页面上找不到可点菜单: ' + clickText); }
-    return await found;
+    if (clickText) {
+      const clicked = await wc.executeJavaScript(`(function(){
+        const t = ${JSON.stringify(clickText)};
+        const els = [...document.querySelectorAll('a,div,span,li,[role=menuitem],[role=button],[role=tab],[class*=menu] *,[class*=nav] *')].filter(e=>{
+          if (e.children.length > 2) return false;
+          if (!e.getClientRects().length) return false;
+          const s = getComputedStyle(e); if (s.visibility==='hidden'||s.display==='none') return false;
+          return (e.innerText||'').replace(/\\s+/g,'').includes(t);
+        });
+        if (!els.length) return false;
+        const el = els[els.length-1];
+        ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(type=>{
+          el.dispatchEvent(new MouseEvent(type, {bubbles:true, cancelable:true, view:window}));
+        });
+        return true;
+      })()`, true);
+      if (!clicked) { wc.debugger.removeAllListeners('message'); throw Error('页面上找不到可点: ' + clickText); }
+    } else {
+      // 无点击目标 = 发现模式：刷新页面重新触发自身数据请求
+      await wc.executeJavaScript('location.reload()', true).catch(() => {});
+    }
+    return await result;
   }
 
   /**
@@ -155,13 +171,20 @@ function createTbClient({ store, windows, openShop }) {
       if (!(window.lib && window.lib.mtop && window.lib.mtop.request)) return {__err: '页面无 lib.mtop SDK'};
       const opts = {v: ${JSON.stringify(version)}, data: ${JSON.stringify(data)}, type: ${JSON.stringify(method)}, dataType: 'originaljsonp', timeout: 10000};
       const api = ${JSON.stringify(api)};
-      let res;
-      try { res = await window.lib.mtop.request(api, opts); }
-      catch (e1) {
-        try { res = await window.lib.mtop.request(Object.assign({api: api}, opts)); }
-        catch (e2) { return {__err: String((e2 && (e2.ret && e2.ret[0] || e2.message)) || e1 && e1.message || e1).slice(0, 200), ret: e2 && e2.ret}; }
+      // 不同页面的 mtop SDK 版本不同，两种调用形式挨个试，取返回标准信封（含 ret）的那个
+      const forms = [
+        (a, o) => window.lib.mtop.request(a, o),
+        (a, o) => window.lib.mtop.request(Object.assign({api: a}, o)),
+      ];
+      let lastRaw = '', lastErr = null;
+      for (const f of forms) {
+        try {
+          const res = await f(api, opts);
+          lastRaw = JSON.stringify(res).slice(0, 250);
+          if (res && res.ret) return {ret: res.ret, data: res.data === undefined ? null : res.data};
+        } catch (e) { lastErr = e; }
       }
-      return {ret: res && res.ret, data: res && res.data === undefined ? null : res.data, raw: JSON.stringify(res).slice(0, 300)};
+      return {__err: String(lastErr && (lastErr.ret && lastErr.ret[0] || lastErr.message) || 'SDK 两种形式均未返回标准信封').slice(0, 180), raw: lastRaw};
     })()`;
     const out = await wc.executeJavaScript(expr, true);
     if (!out) throw Error('页面执行无返回');
