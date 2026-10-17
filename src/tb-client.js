@@ -153,12 +153,15 @@ function createTbClient({ store, windows, openShop }) {
     const wc = await ensurePage(shopId);
     const expr = `(async () => {
       if (!(window.lib && window.lib.mtop && window.lib.mtop.request)) return {__err: '页面无 lib.mtop SDK'};
-      try {
-        const res = await window.lib.mtop.request({api: ${JSON.stringify(api)}, v: ${JSON.stringify(version)}, data: ${JSON.stringify(data)}, type: ${JSON.stringify(method)}, dataType: 'originaljsonp', timeout: 10000});
-        return {ret: res && res.ret, data: res && res.data === undefined ? null : res.data};
-      } catch (e) {
-        return {__err: String((e && (e.ret && e.ret[0] || e.message)) || e).slice(0, 200), ret: e && e.ret};
+      const opts = {v: ${JSON.stringify(version)}, data: ${JSON.stringify(data)}, type: ${JSON.stringify(method)}, dataType: 'originaljsonp', timeout: 10000};
+      const api = ${JSON.stringify(api)};
+      let res;
+      try { res = await window.lib.mtop.request(api, opts); }
+      catch (e1) {
+        try { res = await window.lib.mtop.request(Object.assign({api: api}, opts)); }
+        catch (e2) { return {__err: String((e2 && (e2.ret && e2.ret[0] || e2.message)) || e1 && e1.message || e1).slice(0, 200), ret: e2 && e2.ret}; }
       }
+      return {ret: res && res.ret, data: res && res.data === undefined ? null : res.data, raw: JSON.stringify(res).slice(0, 300)};
     })()`;
     const out = await wc.executeJavaScript(expr, true);
     if (!out) throw Error('页面执行无返回');
