@@ -37,8 +37,9 @@ function openShop(id){
  function configurePopup(parent){tabs.popup(parent,child=>{guard(child);configurePopup(child);w.once('closed',()=>{if(!child.isDestroyed())child.destroy()})})}
  configurePopup(w);}
  attachShop();w.on('resumed',attachShop);
- w.on('closed',()=>{windows.delete(id);ses.flushStorageData();ses.cookies.flushStore().catch(()=>{});emit()});
+ w.on('closed',()=>{if(s.platform==='天猫')sessionSnapshot.save(id,ses).catch(()=>{});windows.delete(id);ses.flushStorageData();ses.cookies.flushStore().catch(()=>{});emit()});
  w.webContents.on('did-fail-load',(_e,code,description,_url,main)=>{if(main&&code!==-3)dialog.showMessageBox(manager,{type:'warning',message:'店铺页面加载失败',detail:description+'\n请检查网络，或编辑店铺后台网址后重新打开。'})});
+ if(s.platform==='天猫')w.webContents.on('did-finish-load',()=>{sessionSnapshot.save(id,ses).catch(()=>{})});
  w.loadURL(s.url).catch(()=>{});s.lastOpened=Date.now();store.save();emit();
  });
 }
@@ -155,7 +156,7 @@ if(!app.requestSingleInstanceLock()){app.quit()}else{
  // 天猫会话快照：定时 + 退出前把内存会话 cookie 存盘（下次打开店铺前回灌，跨重启保登录）
  const saveAllSnaps=()=>{for(const s of (store.items||[])){if(s.platform!=='天猫')continue;const w=windows.get(s.id);if(!w||w.isDestroyed()||w.sleeping)continue;try{sessionSnapshot.save(s.id,session.fromPartition('persist:shop-'+s.id)).catch(()=>{});}catch(e){}}};
  const snapTimer=setInterval(saveAllSnaps,5*60*1000);if(snapTimer.unref)snapTimer.unref();
- app.on('will-quit',()=>{try{saveAllSnaps()}catch(e){}});
+ app.on('before-quit',()=>{try{saveAllSnaps()}catch(e){}});app.on('will-quit',()=>{try{saveAllSnaps()}catch(e){}});
  const handle=(name,fn)=>ipcMain.handle(name,async(e,...args)=>{if(!manager||e.sender!==manager.webContents||e.senderFrame!==manager.webContents.mainFrame)throw Error('未授权');return fn(...args)});
  handle('collectors-list',()=>jobs.list());handle('collector-start',key=>jobs.start(key));handle('collector-jobs',()=>jobs.snapshot());handle('collector-cancel',id=>jobs.cancel(id));
  handle('collectors-import',async()=>{const r=await dialog.showOpenDialog(manager,{title:'选择可信的采集模块文件夹',properties:['openDirectory']});if(r.canceled)return {cancelled:true};await collectors.install(r.filePaths[0]);return jobs.list()});

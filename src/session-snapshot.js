@@ -53,7 +53,7 @@ function createSessionSnapshot({ userDataDir }) {
         const host = c.domain.replace(/^\./, '');
         const params = { url: `https://${host}/`, name: c.name, value: c.value,
                          path: c.path || '/', secure: !!c.secure, httpOnly: !!c.httpOnly };
-        if (!c.domain.startsWith('.')) params.domain = c.domain; // host-only
+        if (c.domain) params.domain = c.domain; // 必须带 domain，否则 .taobao.com 会被降级成 host-only
         if (c.expirationDate) params.expirationDate = c.expirationDate; // 不带 = session cookie
         const ok = await ses.cookies.set(params).catch(() => false);
         if (ok) n++;
