@@ -11,7 +11,7 @@ const SELLER_HOSTS = ['myseller.taobao.com', 'seller.tmall.com'];
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
-function createTbClient({ store, windows, openShop }) {
+function createTbClient({ store, windows, openShop, sessionSnapshot }) {
   function tabOf(shopId) {
     const shop = store.get(shopId);
     if (!shop) throw Error('店铺不存在');
@@ -38,7 +38,7 @@ function createTbClient({ store, windows, openShop }) {
           if (/login|signin|passport/i.test(url)) lastErr = '店铺页在登录页 —— 请先在工作台完成千牛登录';
           else {
             const has = await wc.executeJavaScript('(function(){return !!/(?:^|;\\s*)_tb_token_=/.test(document.cookie)})()').catch(() => false);
-            if (has) return wc;
+            if (has) { if (sessionSnapshot) sessionSnapshot.save(shopId, wc.session).catch(() => {}); return wc; }
             lastErr = '千牛会话已失效（页面里没有 _tb_token_），请在工作台重新登录该店';
           }
         } else lastErr = '店铺页不在千牛域名下: ' + url.slice(0, 80);
