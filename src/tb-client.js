@@ -137,7 +137,36 @@ function createTbClient({ store, windows, openShop }) {
     return await found;
   }
 
-  return { request, ensurePage, drive };
+  /**
+   * mtop 调用（页内借官方 SDK：window.lib.mtop.request）。
+   * 签名/安全头/token 轮换全由 SDK 处理 —— 离线重放会被 SESSION_EXPIRED 拦
+   * （阿里安全头 x-sgext/x-mini-wua 离线无法复刻，实证见 case evidence）。
+   * opts: { api, version?: '1.0', data?: object, method?: 'GET'|'POST' }
+   */
+  async function mtop(shopId, opts = {}) {
+    const api = String(opts.api || '');
+    if (!/^[A-Za-z0-9_.]{3,120}$/.test(api)) throw Error('api 名非法');
+    const version = String(opts.version || '1.0').replace(/[^A-Za-z0-9.]/g, '') || '1.0';
+    const method = String(opts.method || 'GET').toUpperCase();
+    if (method !== 'GET' && method !== 'POST') throw Error('仅支持 GET/POST');
+    const data = opts.data && typeof opts.data === 'object' && !Array.isArray(opts.data) ? opts.data : {};
+    const wc = await ensurePage(shopId);
+    const expr = `(async () => {
+      if (!(window.lib && window.lib.mtop && window.lib.mtop.request)) return {__err: '页面无 lib.mtop SDK'};
+      try {
+        const res = await window.lib.mtop.request({api: ${JSON.stringify(api)}, v: ${JSON.stringify(version)}, data: ${JSON.stringify(data)}, type: ${JSON.stringify(method)}, dataType: 'originaljsonp', timeout: 10000});
+        return {ret: res && res.ret, data: res && res.data === undefined ? null : res.data};
+      } catch (e) {
+        return {__err: String((e && (e.ret && e.ret[0] || e.message)) || e).slice(0, 200), ret: e && e.ret};
+      }
+    })()`;
+    const out = await wc.executeJavaScript(expr, true);
+    if (!out) throw Error('页面执行无返回');
+    if (out.__err) { const err = new Error(out.__err); err.ret = out.ret; throw err; }
+    return out;
+  }
+
+  return { request, ensurePage, drive, mtop };
 }
 
 module.exports = { createTbClient };
