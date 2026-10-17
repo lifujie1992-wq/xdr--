@@ -147,7 +147,7 @@ if(!app.requestSingleInstanceLock()){app.quit()}else{
  appealWeb.start().catch(()=>{});
  exploration=require('./exploration').createExploration({store});
  pddClient=require('./pdd-client').createPddClient({store});
- tbClient=require('./tb-client').createTbClient({store});
+ tbClient=require('./tb-client').createTbClient({store,windows,openShop});
  const handle=(name,fn)=>ipcMain.handle(name,async(e,...args)=>{if(!manager||e.sender!==manager.webContents||e.senderFrame!==manager.webContents.mainFrame)throw Error('未授权');return fn(...args)});
  handle('collectors-list',()=>jobs.list());handle('collector-start',key=>jobs.start(key));handle('collector-jobs',()=>jobs.snapshot());handle('collector-cancel',id=>jobs.cancel(id));
  handle('collectors-import',async()=>{const r=await dialog.showOpenDialog(manager,{title:'选择可信的采集模块文件夹',properties:['openDirectory']});if(r.canceled)return {cancelled:true};await collectors.install(r.filePaths[0]);return jobs.list()});
