@@ -12,6 +12,9 @@ function authenticated(platform,snapshot,hasCookie){
  let u;try{u=new URL(snapshot.url)}catch{return false}
  if(u.protocol!=='https:'||!rule.hosts.includes(u.hostname))return false;
  if(/(?:login|signin|passport|verify|captcha|register|settle)/i.test(u.pathname+u.hash))return false;
+ // 天猫/千牛: 新版工作台内容在 iframe 里，顶层文本判定不可靠；
+ // 会话级校验由 tb-client 的 sgcookie 守卫兑底，这里按 URL+有 cookie 即认定。
+ if(platform==='天猫')return true;
  const text=snapshot.text||'';
  if(/扫码登录|扫描二维码|请扫码|请使用.{0,15}扫码|等待.{0,8}确认|扫码成功|安全验证|身份验证|验证码登录|密码登录|选择.{0,4}店铺|选择.{0,4}主体|登录已失效/.test(text))return false;
  const identity=/退出登录|退出账号|切换账号|切换店铺|店铺信息|店铺设置|账号管理/.test(text);
@@ -67,7 +70,9 @@ function watchLogin({platform,windows,ses,onSuccess,onError,onProgress=()=>{},in
   const snapshot=await w.webContents.executeJavaScript(snapshotScript);
   const cookies=await ses.cookies.get({url:snapshot.url});
   if(authenticated(platform,snapshot,cookies.some(c=>c.value&&(!c.expirationDate||c.expirationDate>Date.now()/1000)))){
-   const name=extractShopName(snapshot);
+   let name=extractShopName(snapshot);
+   // 天猫兑底：新版千牛工作台店名在 iframe 里取不到，用登录 cookie 的昵称充当
+   if(!name&&platform==='天猫'){const nick=cookies.find(c=>c.name==='dnk'||c.name==='tracknick'||c.name==='lgc');if(nick&&nick.value){try{name=decodeURIComponent(nick.value)}catch{name=nick.value}}}
    if(!name){
     if(!missingSince.has(w.id))missingSince.set(w.id,Date.now());
     const elapsed=Date.now()-missingSince.get(w.id);
