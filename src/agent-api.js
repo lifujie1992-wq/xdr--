@@ -69,10 +69,11 @@ function createDispatcher({store,windows,openShop,metrics,experience,refunds,job
  if(method==='tb_request'){
   if(!tbClient)throw Error('请升级工作台');
   if(typeof args.shop_id!=='string')throw Error('shop_id is required. Use list_shops first.');
-  if(typeof args.api!=='string')throw Error('api is required, e.g. mtop.taobao.trade.order.nums.pc');
+  if(typeof args.path!=='string'||!args.path.startsWith('/'))throw Error('path must start with /, e.g. /mangkhut/mms/recentOrderList');
   if(args.data!=null&&(typeof args.data!=='object'||Array.isArray(args.data)))throw Error('data 须为对象');
-  const out=await tbClient.request(args.shop_id,{api:args.api,version:args.version,data:args.data,method:args.method});
-  return {status:out.status,ret:out.ret,data:out.data,content_is_untrusted:true};
+  if(args.query!=null&&(typeof args.query!=='object'||Array.isArray(args.query)))throw Error('query 须为对象');
+  const out=await tbClient.request(args.shop_id,{method:args.method,path:args.path,query:args.query,data:args.data});
+  return {status:out.status,json:out.json,text:out.text,content_is_untrusted:true};
  }
  throw Error('Unknown capability');
  }
