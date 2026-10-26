@@ -662,7 +662,8 @@ function bindFilters(){
   $('fpage').onchange=()=>{ PAGE=1; drawList(); };
   $('clearf').onclick=()=>{ F={status:'',kind:'',shop:'',q:'',from:'',to:'',scenario:''}; $('fq').value=''; $('frange').value=''; if($('fscenario')) $('fscenario').value=''; $('fcustom').classList.add('hide'); PAGE=1; drawList(); };
 }
-bindFilters(); load(); setInterval(()=>{ if(!document.hidden) load() },30000);
+load(); setInterval(()=>{ if(!document.hidden) load() },30000);
+bindFilters();
 </script></body></html>`;
 
 function createAppealWeb({app, appeal}){
