@@ -585,7 +585,8 @@ function queueAct(oid,action){
   })();
 }
 async function loadQueueData(){ try{ QDATA=await fetch('/queue').then(r=>r.json()); }catch(e){} }
-function load(){Promise.all([fetch('/data').then(r=>r.json()),fetch('/stats').then(r=>r.json()),loadQueueData()]).then(([d,s])=>{DATA=d;STATS=s;draw()}).catch(()=>{})}
+let LOADING=false;
+function load(){ if(LOADING) return; LOADING=true; Promise.all([fetch('/data').then(r=>r.json()),fetch('/stats').then(r=>r.json()),loadQueueData()]).then(([d,s])=>{DATA=d;STATS=s;draw()}).catch(()=>{}).finally(()=>{LOADING=false})}
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{TAB=b.dataset.tab;draw()});
 function applyRange(){
   const rg=$('frange').value; $('fcustom').classList.toggle('hide', rg!=='custom');
@@ -608,8 +609,7 @@ function bindFilters(){
   $('fpage').onchange=()=>{ PAGE=1; drawList(); };
   $('clearf').onclick=()=>{ F={status:'',kind:'',shop:'',q:'',from:'',to:'',scenario:''}; $('fq').value=''; $('frange').value=''; if($('fscenario')) $('fscenario').value=''; $('fcustom').classList.add('hide'); PAGE=1; drawList(); };
 }
-load(); bindFilters(); setInterval(load,30000);
-load();setInterval(load,30000);
+bindFilters(); load(); setInterval(()=>{ if(!document.hidden) load() },30000);
 </script></body></html>`;
 
 function createAppealWeb({app, appeal}){
