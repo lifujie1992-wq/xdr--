@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>申诉工作台</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>申诉工作台 · 云端核对</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#f3f8ff;color:#0f172a;font:14px "PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif}
 header{background:#fff;border-bottom:1px solid #e2e8f0;padding:12px 22px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;position:sticky;top:0;z-index:5}
@@ -21,11 +21,14 @@ table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e2e8
 table.list{table-layout:fixed}
 table.list th,table.list td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
 table.list col.c1{width:210px}table.list col.c4{width:220px}table.list col.c2{width:112px}
-table.list col.c5{width:auto}table.list col.c9{width:78px}table.list col.c5{width:auto}
-table.list col.c12{width:620px}
+table.list col.c5{width:auto}table.list col.c9{width:78px}table.list col.c5{width:200px}
+table.list col.c12{width:auto}
 .list td.ops{white-space:normal;vertical-align:top}
 .list td.ops .pair{margin:0;border:0;padding:0;background:none}
 table.list col.c10{width:300px}
+table.list col.c11{width:132px}
+.list td.dates{white-space:normal;font-size:11px;line-height:1.55;color:#64748b}
+.list td.dates span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 table.list td.shopcell b{font-size:13px}
 table.list td .sub{color:#94a3b8;font-size:11px}
 .kindbd{display:inline-block;font-size:10px;padding:2px 7px;border-radius:5px;white-space:nowrap}
@@ -52,9 +55,6 @@ table.list td.why{font-size:12px;line-height:1.5;white-space:normal;color:#47556
 table.list td.tags .badge{margin:1px 2px 1px 0;font-size:10px;padding:2px 6px}
 .tag{white-space:nowrap;display:inline-block}
 .tag.scn{background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:10px;padding:1px 7px;font-size:11px}
-table.list col.c11{width:152px}
-.list td.dates{white-space:normal;font-size:11px;line-height:1.55;color:#64748b}
-.list td.dates span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 tr.lrow{cursor:pointer}
 tr.lrow:hover{background:#f8fafc}
 tr.ldet td{background:#f8fafc;padding:0 12px 10px}
@@ -62,22 +62,6 @@ tr.ldet td{background:#f8fafc;padding:0 12px 10px}
 .detrow{display:flex;gap:6px;max-width:100%}
 .detrow b{color:#64748b;font-weight:600;flex:none}
 .detrow span{white-space:pre-wrap}
-.qinline{display:flex;flex-direction:column;gap:5px;max-width:620px}
-.qinline .qhint{font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.qinline .qhint2{font-size:11px;color:#475569;white-space:normal;line-height:1.5}
-.qinline textarea{width:100%;margin:0;font:12px/1.5 inherit;padding:6px 8px;border:1px solid #dbe2ea;border-radius:6px;resize:vertical}
-.qrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.list td.ops{vertical-align:top;padding-top:10px!important}
-.att{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 6px}
-.attitem{position:relative;display:inline-block;width:64px;height:64px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#f8fafc;text-decoration:none}
-.attitem img{width:100%;height:100%;object-fit:cover;display:block}
-.attx{position:absolute;top:1px;right:1px;width:16px;height:16px;line-height:15px;text-align:center;background:rgba(15,23,42,.72);color:#fff;border-radius:50%;font-size:11px;cursor:pointer;font-weight:400}
-.atts,.atte{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;color:#64748b;background:#f1f5f9}
-.atte{color:#c0392b;background:#fdecea}
-.attbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0 6px}
-.attbtn{display:inline-flex;align-items:center;gap:4px;border:1px dashed #93c5fd;background:#eff6ff;color:#1d4ed8;border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer}
-.attbtn:hover{background:#dbeafe}
-.attbtn input{display:none}
 .pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:12px;flex-wrap:wrap}
 .pager button{padding:6px 12px;font-size:12px;background:#fff;border:1px solid #e2e8f0}
 .pager button:hover{background:#eff6ff;border-color:#93c5fd}
@@ -133,6 +117,49 @@ h2{font-size:14px;margin:22px 0 10px}
 .pair pre{white-space:pre-wrap;font:12px/1.7 -apple-system,"PingFang SC",sans-serif;margin:0;color:#33415c}
 .pair .rejbox{background:#fdf4f3;border:1px solid #f2d3d0;border-radius:8px;padding:10px}
 .pair .okbox{background:#eefaf4;border:1px solid #cfe9de;border-radius:8px;padding:10px}
+/* 人工上传凭证图片 */
+.att{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 6px}
+.attitem{position:relative;display:inline-block;width:64px;height:64px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#f8fafc;text-decoration:none}
+.attitem img{width:100%;height:100%;object-fit:cover;display:block}
+.attx{position:absolute;top:1px;right:1px;width:16px;height:16px;line-height:15px;text-align:center;background:rgba(15,23,42,.72);color:#fff;border-radius:50%;font-size:11px;cursor:pointer;font-weight:400}
+.atts,.atte{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;color:#64748b;background:#f1f5f9}
+.atte{color:#c0392b;background:#fdecea}
+.attbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0 6px}
+.attbtn{display:inline-flex;align-items:center;gap:4px;border:1px dashed #93c5fd;background:#eff6ff;color:#1d4ed8;border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer}
+.attbtn:hover{background:#dbeafe}
+.attbtn input{display:none}
+/* 申诉趋势 */
+.tcard{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px}
+.tbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.tbar .grow{flex:1}
+.tbar input[type=date]{padding:6px 8px;font-size:12px}
+.tsum{font-size:12px;color:#475569;margin:2px 0 8px}
+.tsum b{color:#0f172a}
+.legend{display:flex;gap:14px;font-size:11px;color:#64748b;margin:0 0 4px 44px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.tchart{position:relative}
+.tchart svg{display:block;width:100%;height:auto}
+.tchart .hit{fill:transparent;cursor:crosshair}
+.tchart .hit:hover{fill:rgba(37,99,235,.07)}
+.ttip{position:absolute;top:4px;background:#0f172a;color:#fff;border-radius:8px;padding:7px 9px;font-size:11px;line-height:1.6;pointer-events:none;z-index:3;box-shadow:0 4px 14px rgba(15,23,42,.18);white-space:nowrap}
+.ttip b{color:#bfdbfe}
+.tdetwrap{max-height:300px;overflow:auto;border:1px solid #eef2f7;border-radius:8px;margin-top:6px}
+.tdetwrap table{margin:0;border:0}
+  .uthint{font-size:11px;color:#94a3b8}
+  #favchips{align-items:center;gap:6px}
+  #favchips .chip b.star{font-weight:400;margin-left:2px}
+  /* 店铺下拉（可搜索 + ⭐ 收藏） */
+  .combo{position:relative;display:inline-block}
+  .combo-list{position:absolute;z-index:20;top:calc(100% + 4px);left:0;min-width:340px;max-height:300px;overflow:auto;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.10);padding:4px}
+  .combo-item{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;cursor:pointer;font-size:12px;color:#334155}
+  .combo-item:hover{background:#f1f6ff}
+  .combo-item.on{background:#f8fbff}
+  .combo-item .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .combo-item .star{font-size:14px;line-height:1;cursor:pointer;filter:grayscale(1);opacity:.55}
+  .combo-item.on .star{filter:none;opacity:1}
+  .combo-item .star:hover{opacity:1}
+  .combo-sep{padding:6px 9px;font-size:11px;color:#94a3b8;border-top:1px dashed #eef2f7}
+  .combo-sep:first-child{border-top:0}
 
 .qinline{display:flex;flex-direction:column;gap:5px;max-width:620px}
 .qinline .qhint{font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -141,17 +168,22 @@ h2{font-size:14px;margin:22px 0 10px}
 .qrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 table.list col.c5{width:auto}
 table.list col.c12{width:620px}
-.hgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:6px 0 14px}.hcard{background:#fff;border:1px solid #e3e8ef;border-radius:8px;padding:10px 14px}.hcard .hl{font-size:12px;color:#64748b;margin-bottom:4px}.hcard .hv{font-size:16px;font-weight:600;color:#0f172a}.hrej{list-style:none;margin:4px 0 14px;padding:0;font-size:13px;line-height:1.9;color:#b42318}
-</style></head><body>
+/* 窄容器（工作台 iframe 约 1050px）里不要压缩列宽：
+   固定列合计 1672px，超过容器时 table-layout:fixed 会把唯一的 auto 列
+   （状态原因 c5）压到 0，中文逐字换行、整行被撑高。
+   改为给列表最小宽度并让容器横向滚动。 */
+#listwrap{overflow-x:auto}
+#listwrap table.list{min-width:1880px}
+.hgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:6px 0 14px}.hcard{background:#fff;border:1px solid #e3e8ef;border-radius:8px;padding:10px 14px}.hcard .hl{font-size:12px;color:#64748b;margin-bottom:4px}.hcard .hv{font-size:16px;font-weight:600;color:#0f172a}.hrej{list-style:none;margin:4px 0 14px;padding:0;font-size:13px;line-height:1.9;color:#b42318}\\n</style></head><body>
 <header>
-  <h1>申诉工作台</h1>
+  <h1>申诉工作台 <span style="font-size:11px;color:#2563eb;background:#eff6ff;padding:2px 8px;border-radius:8px">云端核对 · 确认后由本地执行</span></h1>
   <div class="tabs">
     <button data-tab="ops" class="on">首页</button>
     <button data-tab="boss">老板</button>
     <button data-tab="review">复盘</button>
     <button data-tab="list">工单</button>
   </div>
-  <div class="tools"><span id="gen" class="hint"></span><a class="btn" href="/export.csv" download>导出 CSV</a><button class="primary" id="refresh">刷新</button></div>
+  <div class="tools"><span id="gen" class="hint"></span><a class="btn" href="#" download>导出 CSV</a><button class="primary" id="refresh">刷新</button></div>
 </header>
 <main>
   <div id="ops"></div>
@@ -185,7 +217,7 @@ table.list col.c12{width:620px}
   </div>
 </main>
 <script>
-let DATA={items:[]},STATS=null,TAB='ops';
+let DATA={items:[]},STATS=null,TAB='ops',RLIM=50;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const pct=(a,b)=>(a+b)?Math.round(a/(a+b)*100):0;
@@ -193,67 +225,194 @@ const RESULTS=(typeof DATA!=='undefined'&&DATA&&DATA._results)||{};
 function auditState(oid){const v=RESULTS&&RESULTS[oid];if(!v)return null;const a=v.auditStatus;if(a===6)return '已通过';if(a===3)return '已驳回';return '举报中';}
 function kindBd(k){return '<span class="kindbd '+(k==='品退'?'kd-q':'kd-r')+'">'+esc(k||'—')+'</span>'}
 function badge(s){const M={'已举报':'st-doing','举报成功':'st-ok','举报失败':'st-no','不可举报':'st-no','不可申诉':'st-no','未核查':'st-todo','需转人工':'st-human','未处理':'st-todo'};const c=M[s]||'st-human';return '<span class="st '+c+'">'+esc(s||'—')+'</span>'}
-function auditCell(x){const tip=esc((x.auditMsg||'').replace(/\\s+/g,' ').slice(0,200));if(!/^(已举报|举报成功|举报失败)$/.test(x.status||''))return '<td></td>';if(x.auditStatus===3)return '<td class="rej" title="'+tip+'">❌ 平台拒绝：'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0])+'</td>';if(x.auditStatus===6)return '<td class="okc">✅ 审核通过</td>';if(x.auditStatus==null)return '<td class="wait">平台记录待同步</td>';return '<td class="wait">审核中</td>'}
+function auditCell(x){const tip=esc((x.auditMsg||'').replace(/s+/g,' ').slice(0,200));if(!/^(已举报|举报成功|举报失败)$/.test(x.status||''))return '<td></td>';if(x.auditStatus===3)return '<td class="rej" title="'+tip+'">❌ 平台拒绝：'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0])+'</td>';if(x.auditStatus===6)return '<td class="okc">✅ 审核通过</td>';if(x.auditStatus==null)return '<td class="wait">平台记录待同步</td>';return '<td class="wait">审核中</td>'}
 function drawTabs(){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===TAB));['ops','boss','review','list'].forEach(t=>$(t).classList.toggle('hide',t!==TAB))}
-// 首页：按"平台产生 / 我们的举报 / 店铺明细 / 今日驳回"组织，直接由工单全量计算。
-function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
-function dayKey(v){ if(!v) return ''; var s=String(v).trim(); if(s.indexOf('T')>0){ var d=new Date(s); return isNaN(d)?s.slice(0,10):ymd(d) } return s.slice(0,10).split('/').join('-') }
-function homeStats(items,now){
-  now=now||new Date(); var today=ymd(now); var d30=ymd(new Date(now.getTime()-29*86400000));
-  var SUB={'已举报':1,'举报成功':1,'举报失败':1};
-  var H={today:today,fresh:{t:{},m:{}},can:{t:{},m:{}},sub:{today:0,all:0,byKind:{},pass:{},fail:{},ai:0,human:0},shops:{},rej:{}};
-  function inc(o,k){o[k]=(o[k]||0)+1}
-  function slot(shop){ return H.shops[shop]||(H.shops[shop]={shop:shop,newToday:{},ok:{},no:{},subToday:0}) }
-  for(var i=0;i<items.length;i++){
-    var x=items[i], k=x.kind||'其他', day=dayKey(x.date||x.feedback_date), sp=slot(x.shop||'（未知店铺）');
-    var can=x.appealable==='1'||x.appealable===1||x.status==='未处理';
-    if(day===today){ inc(H.fresh.t,k); inc(sp.newToday,k); if(can) inc(H.can.t,k) }
-    if(day>=d30&&day<=today){ inc(H.fresh.m,k); if(can) inc(H.can.m,k) }
-    if(SUB[x.status]){
-      var sd=dayKey(x.submitted_at||x.operated_at);
-      H.sub.all++; inc(H.sub.byKind,k);
-      if(sd===today){ H.sub.today++; sp.subToday++ }
-      if(x.submitter==='AI提交') H.sub.ai++; else H.sub.human++;
-      if(x.status==='举报成功'){ inc(H.sub.pass,k); inc(sp.ok,k) }
-      if(x.status==='举报失败'){
-        inc(H.sub.fail,k); inc(sp.no,k);
-        if(dayKey(x.operated_at||x.submitted_at)===today){ var m=String(x.auditMsg||x.why||'（无驳回说明）').replace('失败原因：','').replace('失败原因:','').split(';平台建议')[0].trim(); var r=H.rej[k]||(H.rej[k]={}); inc(r,m) }
-      }
+
+function isPureEmotion(t) {
+  const PURE_EMOTION = new Set(['差评','中评','差','中','烂','不好','不推荐','不推荐购买','垃圾','辣鸡','无语','服了','服气','呵呵','唉','哎','后悔','失望','一般','还行','凑合','醉了','离谱','难看','丑','不值','不值得','浪费钱','上当','踩雷','翻车','绝了','恶心','什么玩意','很一般','太差了','差劲','无语子']);
+  const s = String(t || '').trim().replace(/^[。.！!~～,，、；;？?　 \\t\\n]+|[。.！!~～,，、；;？?　 \\t\\n]+$/g, '');
+  return !s || PURE_EMOTION.has(s);
+}
+function normDay(v) {
+  if (!v) return '';
+  return String(v).trim().replace(/\\//g, '-').slice(0, 10);
+}
+function rateVal(ok, bad) {
+  return (ok + bad) ? Math.round(ok * 100 / (ok + bad)) : 0;
+}
+
+function homeStats(DATA, STATS) {
+  const items = (DATA && DATA.items) || [];
+  const results = (DATA && DATA._results) || {};
+  const rrows = (STATS && STATS.review && STATS.review.rows) || [];
+
+  // 业务口径：取工单池中最新有数据的那一天作为汇总统计基准日
+  let today = '';
+  for (const x of items) {
+    const d = normDay(x.date || x.feedback_date);
+    if (d && d > today) today = d;
+  }
+  if (!today) {
+    const nowD = new Date();
+    today = nowD.getFullYear() + '-' + String(nowD.getMonth() + 1).padStart(2, '0') + '-' + String(nowD.getDate()).padStart(2, '0');
+  }
+
+  // 计算近30天范围
+  const targetDate = new Date(today + 'T00:00:00');
+  const d30 = new Date(targetDate.getTime() - 29 * 86400000);
+  const d30Str = d30.getFullYear() + '-' + String(d30.getMonth() + 1).padStart(2, '0') + '-' + String(d30.getDate()).padStart(2, '0');
+
+  const NEW = { '品退': { n: 0, ok: 0 }, '中差评': { n: 0, ok: 0 } };
+  const CUM = { '品退': { n: 0, ok: 0 }, '中差评': { n: 0, ok: 0 } };
+  const NEW_SHOP = {};
+
+  for (const x of items) {
+    const k = x.kind;
+    if (k !== '品退' && k !== '中差评') continue;
+    const d = normDay(x.date || x.feedback_date);
+    const hasMedia = x.has_media === 1 || x.has_media === '1' || x.has_media === true;
+    const ok = k === '品退' ? (x.appealable === 1 || x.appealable === '1' || x.appealable === true) : (isPureEmotion(x.content) && !hasMedia);
+
+    if (d === today) {
+      NEW[k].n++;
+      if (ok) NEW[k].ok++;
+      const sh = x.shop || '(未知店铺)';
+      if (!NEW_SHOP[sh]) NEW_SHOP[sh] = { '品退': [0, 0], '中差评': [0, 0] };
+      NEW_SHOP[sh][k][0]++;
+      if (ok) NEW_SHOP[sh][k][1]++;
+    }
+    if (d >= d30Str && d <= today) {
+      CUM[k].n++;
+      if (ok) CUM[k].ok++;
     }
   }
-  return H;
-}
-function homeHtml(H,esc){
-  var KS=['品退','中差评'];
-  function two(o){ return '品退 '+(o['品退']||0)+' ｜ 中差评 '+(o['中差评']||0) }
-  function rate(ok,no){ var n=(ok||0)+(no||0); return n?Math.round((ok||0)/n*100)+'%':null }
-  function blk(t,v){ return '<div class="hcard"><div class="hl">'+t+'</div><div class="hv">'+v+'</div></div>' }
-  var s=H.sub, allPass=(s.pass['品退']||0)+(s.pass['中差评']||0), allFail=(s.fail['品退']||0)+(s.fail['中差评']||0);
-  var tot=s.ai+s.human, pc=function(n){return tot?Math.round(n/tot*100):0};
-  var h='<h2>平台产生</h2><div class="hgrid">'
-   +blk('今日新增',two(H.fresh.t))+blk('今日可申诉',two(H.can.t))+blk('近30天新增',two(H.fresh.m))+blk('近30天可申诉',two(H.can.m))+'</div>';
-  h+='<h2>我们的举报</h2><div class="hgrid">'
-   +blk('今日提交',s.today+' 单')
-   +blk('累计提交',s.all+' 单（品退 '+(s.byKind['品退']||0)+' ｜ 中差评 '+(s.byKind['中差评']||0)+'）')
-   +blk('累计通过率',(rate(allPass,allFail)||'-')+'（品退 '+(rate(s.pass['品退'],s.fail['品退'])||'-')+' ｜ 中差评 '+(rate(s.pass['中差评'],s.fail['中差评'])||'-')+'）')
-   +blk('提交人','AI '+s.ai+'（'+pc(s.ai)+'%）· 人工 '+s.human+'（'+pc(s.human)+'%）')+'</div>';
-  var rows=Object.values(H.shops).filter(function(p){return (p.newToday['品退']||0)+(p.newToday['中差评']||0)+p.subToday>0});
-  var idle=Object.keys(H.shops).length-rows.length;
-  rows.sort(function(a,b){return ((b.newToday['品退']||0)+(b.newToday['中差评']||0))-((a.newToday['品退']||0)+(a.newToday['中差评']||0))});
-  function cell(ok,no){ var r=rate(ok,no); return r?r+' ('+((ok||0)+(no||0))+')':'-' }
-  h+='<h2>店铺明细</h2><table><thead><tr><th>店铺</th><th>今日新增 品退 / 中差评</th><th>品退通过率</th><th>中差评通过率</th></tr></thead><tbody>'
-   +rows.map(function(p){return '<tr><td>'+esc(p.shop)+'</td><td>'+(p.newToday['品退']||0)+' / '+(p.newToday['中差评']||0)+'</td><td>'+cell(p.ok['品退'],p.no['品退'])+'</td><td>'+cell(p.ok['中差评'],p.no['中差评'])+'</td></tr>'}).join('')
-   +'</tbody></table>'+(idle>0?'<div class="hint">另有 '+idle+' 家店今日无动作</div>':'');
-  KS.forEach(function(k){
-    var r=H.rej[k]||{}, e=Object.entries(r).sort(function(a,b){return b[1]-a[1]});
-    h+='<h2>❌ 今日驳回（'+k+'）</h2>'+(e.length?'<ul class="hrej">'+e.map(function(z){var t=z[0].length>40?z[0].slice(0,40)+'…':z[0];return '<li title="'+esc(z[0])+'">· '+esc(t)+' ×'+z[1]+'</li>'}).join('')+'</ul>':'<div class="empty">今日无驳回</div>');
+
+  // 我们的举报统计（按 daily-summary 排除 10-01 ~ 10-04 批量测试）
+  const itemByOid = {};
+  for (const x of items) if (x.order_id) itemByOid[x.order_id] = x;
+
+  const validRows = rrows.filter(r => {
+    if (r.auditStatus == null) return false;
+    const it = itemByOid[r.order_id];
+    const created = normDay((it && (it.submitted_at || it.date)) || r.at);
+    return !(created >= '2026-10-01' && created < '2026-10-05');
   });
+
+  const newrec = () => ({ sub: 0, total: 0, ok: 0, bad: 0 });
+  const G = { '品退': newrec(), '中差评': newrec() };
+  const T = { '品退': newrec(), '中差评': newrec() };
+  const W = { 'AI': newrec(), '人工': newrec() };
+  const SH = {};
+
+  for (const r of validRows) {
+    const k = r.kind === '中差评' ? '中差评' : '品退';
+    const w = String(r.submitter || '').indexOf('AI') === 0 ? 'AI' : '人工';
+    const d = normDay(r.at);
+    T[k].total++; W[w].total++;
+    const s = r.shop || '?';
+    if (!SH[s]) SH[s] = { '品退': newrec(), '中差评': newrec() };
+    const sd = SH[s][k];
+    sd.total++;
+    if (r.auditStatus === 6) { T[k].ok++; W[w].ok++; sd.ok++; }
+    else if (r.auditStatus === 3) { T[k].bad++; W[w].bad++; sd.bad++; }
+    if (d === today) { G[k].sub++; sd.sub++; }
+  }
+
+  // 今日驳回理由统计（来自 review.rows 或 STATS.review.rejTop）
+  const rejMsgs = { '品退': {}, '中差评': {} };
+  for (const r of rrows) {
+    const ad = normDay(r.auditTime || r.at);
+    if (ad === today && r.auditStatus === 3) {
+      const k = r.kind === '中差评' ? '中差评' : '品退';
+      const m = String(r.auditMsg || '').replace(/^失败原因[:：]/, '').split(';平台建议')[0].trim();
+      if (m) rejMsgs[k][m] = (rejMsgs[k][m] || 0) + 1;
+    }
+  }
+
+  return { today, NEW, CUM, NEW_SHOP, G, T, W, SH, rejMsgs };
+}
+
+function homeHtml(H, esc) {
+  const rateStr = (ok, bad) => (ok + bad) ? (Math.round(ok * 100 / (ok + bad)) + '%') : '-';
+  const blk = (title, val) => '<div class="hcard"><div class="hl">' + title + '</div><div class="hv">' + val + '</div></div>';
+
+  const totSub = H.G['品退'].sub + H.G['中差评'].sub;
+  const allSub = H.T['品退'].total + H.T['中差评'].total;
+  const allOk = H.T['品退'].ok + H.T['中差评'].ok;
+  const allBad = H.T['品退'].bad + H.T['中差评'].bad;
+  const allRate = rateStr(allOk, allBad);
+  const qRate = rateStr(H.T['品退'].ok, H.T['品退'].bad);
+  const rRate = rateStr(H.T['中差评'].ok, H.T['中差评'].bad);
+
+  let h = '<div style="margin-bottom:12px;font-size:12px;color:#64748b">数据日期：<b>' + H.today + '</b></div>';
+
+  // 1. 平台产生
+  h += '<h2>【平台产生】</h2><div class="hgrid">'
+    + blk('今日新增', '品退 <b>' + H.NEW['品退'].n + '</b> ｜ 中差评 <b>' + H.NEW['中差评'].n + '</b>')
+    + blk('今日可申诉', '品退 <b>' + H.NEW['品退'].ok + '</b> ｜ 中差评 <b>' + H.NEW['中差评'].ok + '</b>')
+    + blk('近30天新增', '品退 <b>' + H.CUM['品退'].n + '</b> ｜ 中差评 <b>' + H.CUM['中差评'].n + '</b>')
+    + blk('近30天可申诉', '品退 <b>' + H.CUM['品退'].ok + '</b> ｜ 中差评 <b>' + H.CUM['中差评'].ok + '</b>')
+    + '</div>';
+
+  // 2. 我们的举报
+  h += '<h2>【我们的举报】</h2><div class="hgrid">'
+    + blk('今日提交', '<b>' + totSub + '</b> 单')
+    + blk('累计提交', '<b>' + allSub + '</b> 单（品退 ' + H.T['品退'].total + ' ｜ 中差评 ' + H.T['中差评'].total + '）')
+    + blk('累计通过率', '<b>' + allRate + '</b>（品退 ' + qRate + ' ｜ 中差评 ' + rRate + '）')
+    + blk('提交人', 'AI ' + H.W.AI.total + '（' + rateStr(H.W.AI.ok, H.W.AI.bad) + '）· 人工 ' + H.W['人工'].total + '（' + rateStr(H.W['人工'].ok, H.W['人工'].bad) + '）')
+    + '</div>';
+
+  // 3. 店铺明细
+  const allShopNames = Array.from(new Set([...Object.keys(H.NEW_SHOP), ...Object.keys(H.SH)]));
+  const rows = [];
+  for (const s of allShopNames) {
+    const nq = (H.NEW_SHOP[s] && H.NEW_SHOP[s]['品退']) || [0, 0];
+    const nr = (H.NEW_SHOP[s] && H.NEW_SHOP[s]['中差评']) || [0, 0];
+    const sd = H.SH[s] || {};
+    const cq = (sd['品退'] && sd['品退'].total) || 0;
+    const cr = (sd['中差评'] && sd['中差评'].total) || 0;
+    if (nq[0] || nr[0] || cq || cr) {
+      rows.push({ shop: s, nq: nq[0], nr: nr[0], sd });
+    }
+  }
+  rows.sort((a, b) => (b.nq + b.nr) - (a.nq + a.nr));
+
+  const topRows = rows.slice(0, 12);
+  const idleCount = allShopNames.length - topRows.length;
+
+  function cellRate(d) {
+    if (!d || !d.total) return '-';
+    if (!d.ok && !d.bad) return '审核中 (' + d.total + ')';
+    return Math.round(d.ok * 100 / (d.ok + d.bad)) + '% (' + d.total + ')';
+  }
+
+  h += '<h2>【店铺明细】</h2><table><thead><tr><th>店铺</th><th>品退/中差评</th><th>品退通过率</th><th>中差评通过率</th></tr></thead><tbody>'
+    + topRows.map(r => '<tr><td><b>' + esc(r.shop) + '</b></td><td>' + r.nq + ' / ' + r.nr + '</td><td>' + cellRate(r.sd['品退']) + '</td><td>' + cellRate(r.sd['中差评']) + '</td></tr>').join('')
+    + '</tbody></table>';
+  if (idleCount > 0) {
+    h += '<div style="margin:8px 0 16px;font-size:12px;color:#64748b">另有 ' + idleCount + ' 家店今日无动作</div>';
+  }
+
+  // 4. 今日驳回理由
+  ['品退', '中差评'].forEach(k => {
+    const msgs = H.rejMsgs[k];
+    const entries = Object.entries(msgs).sort((a, b) => b[1] - a[1]);
+    h += '<h2>❌ 今日驳回（' + k + '）</h2>';
+    if (entries.length) {
+      h += '<ul class="hrej">' + entries.map(([m, cnt]) => '<li title="' + esc(m) + '">· ' + esc(m.length > 50 ? m.slice(0, 50) + '…' : m) + ' ×' + cnt + '</li>').join('') + '</ul>';
+    } else {
+      h += '<div style="color:#64748b;font-size:13px;margin:4px 0 14px">今日暂无驳回</div>';
+    }
+  });
+
   return h;
 }
+
 function drawOps(){
-  $('ops').innerHTML=homeHtml(homeStats((DATA&&DATA.items)||[]),esc);
+  $('ops').innerHTML = homeHtml(homeStats(DATA, STATS), esc);
 }
-function drawBoss(){
+function drawBoss(force){
+  if(!force && document.activeElement && $('boss').contains(document.activeElement) && /INPUT|SELECT/.test(document.activeElement.tagName)) return; // 改日期/下拉时不重绘
   const b=STATS.boss;
   $('boss').innerHTML='<div class="cards">'
    +card('实际剔除单量',b.pass,'单（审核通过）','good')
@@ -261,10 +420,11 @@ function drawBoss(){
    +card('累计提交',b.sub,'单')
    +card('审核中',b.pending,'单')
    +'</div>'
-   +'<h2>近30天趋势（提交 / 通过）</h2>'+trendTable(b.trend)
+   +'<h2>申诉趋势 <span class="hint" style="font-weight:400">提交 / 通过 / 驳回</span></h2>'+trendCard()
    +'<h2>分类统计（品退 / 中差评）</h2>'+kindTable(STATS.byKind||{})
    +'<h2>店铺对比（含近30天趋势）</h2>'+shopTable(b.byShop,b)
    +'<h2>按举报原因的成功率</h2>'+reasonTable(STATS.review.byReason);
+  bindTrend();
 }
 let RF={kind:'',shop:''};
 function rRows(){ return (STATS.review.rows||[]).filter(x=>{ if(RF.kind && x.kind!==RF.kind) return false; if(RF.shop && x.shop!==RF.shop) return false; return true; }); }
@@ -284,42 +444,51 @@ function drawRKind(){ const el=$('rkind'); if(!el) return; el.value=RF.kind||'';
 function drawRShop(){ const el=$('rshop'); if(!el) return; const m={}; for(const x of (STATS.review.rows||[])){ if(x.shop) m[x.shop]=(m[x.shop]||0)+1; } el.innerHTML='<option value="">全部店铺 ('+Object.keys(m).length+')</option>'+Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([k,v])=>'<option'+(RF.shop===k?' selected':'')+' value="'+esc(k)+'">'+esc(k)+' ('+v+')</option>').join(''); el.onchange=()=>{ RF.shop=el.value; drawReview(); }; }
 function drawReview(){
   const r=STATS.review;
+  const all=r.rows.slice().reverse();
+  const rows=RLIM>0?all.slice(0,RLIM):all;
   $('review').innerHTML='<p class="hint">把「你提交的说明 + 选的举报原因」和「平台审核结果 + 驳回理由」并排看，找规律。</p>'
    +'<div class="frow" style="margin:6px 0 10px"><span class="hint">类型</span><select id="rkind"><option value="">全部</option><option value="品退">品退</option><option value="中差评">中差评</option></select><span class="hint">店铺</span><select id="rshop" style="min-width:220px"></select></div>'
    +'<h2>按场景 × 人工 / AI <span class="hint">（通过率 = 通过 ÷（通过 + 驳回），不含审核中）</span></h2>'+splitTable()
    +'<h2>按举报原因的成功率</h2>'+reasonTable(r.byReason)
    +'<h2>驳回原因 TOP</h2>'+rejTopTable()
-   +'<h2>逐条复盘（近 '+r.rows.length+' 条提交）</h2>'
-   + r.rows.slice().reverse().map(x=>{
+   +'<h2>逐条复盘（共 '+all.length+' 条提交）</h2>'
+   +'<div class="frow" style="margin-bottom:8px"><span class="hint">显示最近</span><select id="rlim">'
+   +[50,100,300,0].map(v=>'<option value="'+v+'"'+(RLIM===v?' selected':'')+'>'+(v||'全部')+'</option>').join('')
+   +'</select><span class="hint">条（共 '+all.length+' 条，默认 50 条避免页面过长）</span></div>'
+   + rows.map(x=>{
       const rej=x.auditStatus===3, ok=x.auditStatus===6;
-      const box=ok?'<div class="okbox"><b>✅ 审核通过</b><pre>'+esc((x.auditMsg||'').replace(/;平台建议[\\s\\S]*/,''))+'</pre></div>'
-        :rej?'<div class="rejbox"><b>❌ 驳回</b><pre>'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').replace(/;平台建议[\\s\\S]*/,''))+'</pre></div>'
+      const box=ok?'<div class="okbox"><b>✅ 审核通过</b><pre>'+esc((x.auditMsg||'').replace(/;平台建议[sS]*/,''))+'</pre></div>'
+        :rej?'<div class="rejbox"><b>❌ 驳回</b><pre>'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').replace(/;平台建议[sS]*/,''))+'</pre></div>'
         :'<div class="wait">审核中 / 待同步</div>';
       return '<div class="pair"><div class="hint">'+esc(x.shop||'')+' · <span class="mono">'+esc(x.order_id)+'</span> · '+esc((x.at||'').slice(0,16).replace('T',' '))+' · <span class="tag">'+esc(x.submitReason||x.kind||'')+'</span></div>'
         +'<div class="row2"><div class="col"><h3>订单原始情况（买家选的）</h3><pre>'+esc(x.buyerReason||'（无）')+'</pre></div>'
         +'<div class="col"><h3>平台审核结果</h3>'+box+'</div></div></div>';
    }).join('');
   drawRKind(); drawRShop();
+  const sel=$('rlim'); if(sel) sel.onchange=()=>{ RLIM=Number(sel.value); drawReview(); };
 }
 let PAGE=1, F={status:'',kind:'',shop:'',q:'',from:'',to:'',scenario:''};
 const STATUSES=['已举报','举报成功','举报失败','不可举报','需转人工','未举报'];
+// 合并后的状态集：核对阶段 + 提交/审核阶段
 const USTATUSES=['待核对','已确认','审核中','举报成功','举报失败','不可举报','不可申诉','未核查','未处理'];
 const USTATUS_DESC={'待核对':'需要人工核对/确认后才提交','已确认':'已人工确认，等待本地执行提交','审核中':'已提交平台，等待审核结果','举报成功':'平台审核通过（差评率已剔除）','举报失败':'平台驳回','不可举报':'平台判定不能报（含无需举报），已放弃','不可申诉':'品退全量池：不符合申诉条件（说明与品质原因一致/自带品质描述），已自动排除','未核查':'品退全量池：本批超出逐单核查上限，暂未判定（下次跑批会补）','未处理':'系统还没处理过'};
-const qStatus=x=>String((x&&x.status)||'').replace(/（待本地执行）$/,'');
 const uStatus=x=>{ let st=String((x&&x.status)||''); if(st==='需转人工') st='待核对'; if(st==='已举报'||st==='已提交'||st==='待同步') st='审核中'; if(st==='未举报') st='未处理'; if(st==='不举报') st='不可举报'; return st; };
+// 把 data(工单) 与 queue(核对) 按订单号合成一张表
 function uniRows(){
   const qmap={}; for(const q of (QDATA.items||[])){ if(q&&q.order_id) qmap[q.order_id]=q; }
   const out=[], seen=new Set();
   for(const d of (DATA.items||[])){
     if(!d||!d.order_id) continue; seen.add(d.order_id);
-    const q=qmap[d.order_id]; let st=d.status||'';
+    const q=qmap[d.order_id];
+    let st=d.status||'';
     st=uStatus({status:st});
-    if(q && (q.status==='待核对'||q.status==='已确认')) st=q.status;
+    if(q){ const qs=qStatus(q); if(qs==='待核对'||qs==='已确认') st=qs; }
     out.push(Object.assign({},d,{status:st,__q:q||null}));
   }
   for(const q of (QDATA.items||[])){
     if(!q||!q.order_id||seen.has(q.order_id)) continue;
-    out.push({kind:'',shop:q.shop||'',order_id:q.order_id,date:q.date||'',status:q.status||'',why:'',tags:[],submitter:'',auditStatus:null,auditMsg:'',content:q.content||'',rank:q.rank||'',report_reason:'',appeal_desc:q.desc||'',scenario:'',__q:q});
+    out.push({kind:'',shop:q.shop||'',order_id:q.order_id,date:q.date||'',status:qStatus(q),why:'',tags:[],submitter:'',auditStatus:null,auditMsg:'',
+      content:q.content||'',rank:q.rank||'',report_reason:'',appeal_desc:q.desc||'',scenario:'',__q:q});
   }
   return out;
 }
@@ -360,6 +529,7 @@ function drawSeg(){
   $('fkindSeg').innerHTML=['','品退','中差评'].map(k=>'<button class="sg'+((F.kind===k||(k===''&&!F.kind))?' on':'')+'" data-k="'+k+'">'+(k||'全部')+'</button>').join('');
   $('fkindSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{ F.kind=b.dataset.k; PAGE=1; drawSeg(); drawList(); });
 }
+// 场景下拉：按“哪种情况的申诉”筛选（来自 buildData 的 scenario）
 function drawScenarioSel(all){
   const sel=$('fscenario'); if(!sel) return;
   const m={}; for(const x of all){ if(x.scenario) m[x.scenario]=(m[x.scenario]||0)+1; }
@@ -367,6 +537,7 @@ function drawScenarioSel(all){
   sel.innerHTML='<option value="">全部场景 ('+keys.length+')</option>'
     +keys.map(k=>'<option'+(F.scenario===k?' selected':'')+' value="'+esc(k)+'">'+esc(k)+' ('+m[k]+')</option>').join('');
 }
+// 展开行：展示订单的评价/售后情况 + 申诉/举报的操作内容
 function detailCell(x){
   const kv=[
     ['场景', esc(x.scenario||'—')],
@@ -385,7 +556,7 @@ function detailCell(x){
     kv.push(['飞鸽聊天', _ct?('共 '+_ct+' 条'+(x.chat_imgs?('（图 '+x.chat_imgs+' 张）'):'')+((_cb>0)?'':'(买家未发言)')+(x.chat_agents?(' ｜ 客服：'+esc(x.chat_agents)):'')):'无聊天记录']);
   }
   const ro='<div class="det">'+kv.map(([k,v])=>'<div class="detrow"><b>'+k+'</b><span>'+v+'</span></div>').join('')+'</div>';
-  const q=((x.status==='待核对') && !(x.__q && x.__q.status==='待核对'))?('<div class="hint" style="padding:6px 2px">⏳ 等待入队：这不是「待你确认」的工单，AI 只是把它标成需人工看。下次跑批会自动收进核对队列，之后这里才会出现「确认提交」按钮。</div>'):'';
+  const q=((x.status==='待核对') && !(x.__q && qStatus(x.__q)==='待核对'))?('<div class="hint" style="padding:6px 2px">⏳ 等待入队：这不是「待你确认」的工单，AI 只是把它标成需人工看。下次跑批会自动收进核对队列，之后这里才会出现「确认提交」按钮。</div>'):'';
   return ro+q;
 }
 
@@ -413,16 +584,20 @@ function drawList(){
       +'<td class="ordcell"><span class="mono">'+esc(x.order_id)+'</span><br><span class="sub">'+esc(x.product_name||'')+'</span>'+(x.product_id?'<span class="sub"> · 编码 '+esc(x.product_id)+'</span>':'')+'</td>'
       +'<td>'+badge(x.status)+'</td>'
       +'<td class="why" title="'+esc(x.why||'')+'">'+esc(x.why||'—')+'</td>'
-      +'<td class="ops">'+((x.__q && x.__q.status==='待核对')?qEditBlock(x.__q):('<span class="hint">'+esc((x.kind==='品退'&&x.appealable===0?(x.block_reason||x.aftersale):(x.kind==='品退'?x.aftersale:x.content))||x.report_reason||'—')+'</span>'))+'</td>'
+      +'<td class="ops">'+((x.__q && qStatus(x.__q)==='待核对')?qEditBlock(x.__q):('<span class="hint">'+esc((x.kind==='品退'&&x.appealable===0?(x.block_reason||x.aftersale):(x.kind==='品退'?x.aftersale:x.content))||x.report_reason||'—')+'</span>'))+'</td>'
       +'<td>'+(x.submitter?'<span class="tag">'+esc(x.submitter)+'</span>':'')+'</td>'
       +auditCell(x)
       +'</tr>'
       +'<tr class="ldet'+((x.status==='待核对'||x.status==='已确认')?'':' hide')+'" data-of="'+esc(x.order_id)+'"><td colspan="8">'+detailCell(x)+'</td></tr>').join('')+'</tbody></table>';
   $('listwrap').querySelectorAll('tr.lrow').forEach(tr=>{ tr.onclick=()=>{ const d=$('listwrap').querySelector('tr.ldet[data-of="'+tr.dataset.o+'"]'); if(d) d.classList.toggle('hide'); }; });
-  // 展开行/内联区内的「核对」操作（改理由/文案、传图、确认/驳回、撤回）
-  $('listwrap').querySelectorAll('button.qa').forEach(b=>b.onclick=()=>queueAct(b.dataset.oid,b.dataset.act));
-  $('listwrap').querySelectorAll('input.qfile').forEach(inp=>inp.onchange=()=>onPickFiles(inp.dataset.oid,inp));
-  view.forEach(x=>{ if(x.__q && x.__q.status==='待核对'){ if(QIMG[x.order_id]===undefined){ QIMG[x.order_id]=(x.__q.images||[]).map(i=>Object.assign({},i,{status:'done'})); } renderAtt(x.order_id); } });
+  // 展开行内的「核对」操作（改理由/文案、传图、确认/驳回、撤回）
+  const lw=$('listwrap');
+  lw.querySelectorAll('button.qa').forEach(b=>b.onclick=()=>queueAct(b.dataset.oid,b.dataset.act));
+  lw.querySelectorAll('input.qfile').forEach(inp=>inp.onchange=()=>onPickFiles(inp.dataset.oid,inp));
+  lw.querySelectorAll('select[id^="qsub_"]').forEach(sel=>{ const oid=sel.id.slice(5), a=lw.querySelector('[data-tpl="'+oid+'"]'), x=(QDATA.items||[]).find(i=>i.order_id===oid); if(a&&x) a.style.display=qTpl(x,sel.value)?'':'none'; });
+  lw.querySelectorAll('[data-tpl]').forEach(a=>a.onclick=()=>{ const oid=a.dataset.tpl, x=(QDATA.items||[]).find(i=>i.order_id===oid), sel=$('qsub_'+oid), ta=$('qta_'+oid); const sub=sel?sel.value:(x&&x.sub), t=qTpl(x,sub); if(!t){ alert('当前选中的举报理由还没有预置文案，请手动填写'); return; } if(!qTplOk(x,sub) && !confirm('这条评价内容看着不像「好评内容」，确定要套用这段文案吗？\\n\\n内容：'+((x&&x.content)||''))) return; if(ta) ta.value=t; });
+  lw.querySelectorAll('[data-ai]').forEach(a=>a.onclick=()=>{ const x=(QDATA.items||[]).find(i=>i.order_id===a.dataset.ai), ta=$('qta_'+a.dataset.ai); if(ta&&x) ta.value=x.desc||''; });
+  view.forEach(x=>{ if(x.__q && qStatus(x.__q)==='待核对'){ if(QIMG[x.order_id]===undefined){ QIMG[x.order_id]=(x.__q.images||[]).map(i=>Object.assign({},i,{status:'done'})); } renderAtt(x.order_id); } });
   $('pager').innerHTML= size>0 && pages>1
     ? '<button data-pg="1">首页</button><button data-pg="'+(PAGE-1)+'">上一页</button><span class="hint">第 '+PAGE+' / '+pages+' 页 · 每页 '+size+' 条</span><button data-pg="'+(PAGE+1)+'">下一页</button><button data-pg="'+pages+'">末页</button>'
     : '<span class="hint">共 '+rows.length+' 条</span>';
@@ -494,18 +669,126 @@ function shopTrends(b){
     }).join('');
 }
 function trendTable(map){const ks=Object.keys(map).sort();if(!ks.length)return '<div class="empty">暂无</div>';return '<table><thead><tr><th>日期</th><th>提交</th><th>通过</th><th>驳回</th></tr></thead><tbody>'+ks.map(k=>'<tr><td>'+k+'</td><td>'+map[k].sub+'</td><td class="okc">'+map[k].pass+'</td><td class="rej">'+map[k].reject+'</td></tr>').join('')+'</tbody></table>'}
-function draw(){drawTabs();if(!STATS)return;$('gen').textContent='更新于 '+(STATS.generated_at?new Date(STATS.generated_at).toLocaleString('zh-CN'):'');if(TAB==='ops')drawOps();else if(TAB==='boss')drawBoss();else if(TAB==='review')drawReview();else if(TAB==='queue')drawQueue();else drawList()}
-const QREASONS=[['report_reason_evaluate_product_other_shop','评价内容非交易商品或内容无意义'],['report_reason_fake_negative_comment','评价等级为差评内容为好评'],['report_reason_wrong_size','消费者买错型号'],['report_reason_low_politics_guns','评价内容中包含辱骂或不当词汇'],['report_reason_evaluate_advertise','评价内容包含广告信息'],['report_reason_before_signing_evaluate','订单签收前评价商品质量问题'],['report_reason_negative_comment_compensation','利用中差评骗赔'],['report_reason_business_evil_compete','同行恶意竞争'],['report_reason_platform_voucher','平台发券导致的降价差评']];
-const QST=['待核对','已确认','已提交','不举报','已失效'];
-let QF={status:'待核对',shop:'',q:''}, QDATA={items:[]};
-function qFiltered(){
-  return QDATA.items.filter(x=>{
-    if(QF.status && x.status!==QF.status) return false;
-    if(QF.shop && (x.shop||'')!==QF.shop) return false;
-    if(QF.q){ const h=((x.shop||'')+' '+(x.order_id||'')+' '+(x.content||'')).toLowerCase(); if(h.indexOf(QF.q)<0) return false; }
-    return true;
-  });
+/* ---------- 申诉趋势：折线/柱状组合 + 区间/粒度 ---------- */
+const BTR={range:30,from:'',to:'',grain:'day',detail:false};
+const fmtD=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+function bossTrend(){
+  const b=STATS.boss||{}, tr=b.trend||{};
+  const axis=[...new Set([...(b.days||[]),...Object.keys(tr)])].filter(Boolean).sort();
+  if(!axis.length) return null;
+  const axisMin=axis[0], axisMax=axis[axis.length-1];
+  let from,to;
+  if(BTR.range==='custom'){ from=BTR.from||axisMin; to=BTR.to||axisMax; }
+  else if(Number(BTR.range)>0){ const d=new Date(axisMax+'T00:00:00'); d.setDate(d.getDate()-(Number(BTR.range)-1)); from=fmtD(d); to=axisMax; }
+  else { from=axisMin; to=axisMax; }
+  if(from>to){ const t=from; from=to; to=t; }
+  let days=axis.filter(d=>d>=from&&d<=to);
+  if(!days.length) days=axis.slice(-30);
+  const cats=[],full=[],sub=[],pass=[],reject=[];
+  if(BTR.grain==='week'){
+    for(let i=0;i<days.length;i+=7){
+      const ch=days.slice(i,i+7);
+      cats.push(ch[0].slice(5)+(ch.length>1?'~'+ch[ch.length-1].slice(5):''));
+      full.push(ch[0]+' ~ '+ch[ch.length-1]);
+      sub.push(ch.reduce((a,d)=>a+((tr[d]||{}).sub||0),0));
+      pass.push(ch.reduce((a,d)=>a+((tr[d]||{}).pass||0),0));
+      reject.push(ch.reduce((a,d)=>a+((tr[d]||{}).reject||0),0));
+    }
+  }else{
+    for(const d of days){
+      cats.push(d.slice(5)); full.push(d);
+      sub.push((tr[d]||{}).sub||0); pass.push((tr[d]||{}).pass||0); reject.push((tr[d]||{}).reject||0);
+    }
+  }
+  const S=sub.reduce((a,c)=>a+c,0), P=pass.reduce((a,c)=>a+c,0), R=reject.reduce((a,c)=>a+c,0);
+  return {cats,full,sub,pass,reject,S,P,R,rate:pct(P,R),from:days[0],to:days[days.length-1],axisMin,axisMax,weeks:BTR.grain==='week'};
 }
+function niceMax(v){ if(v<=4) return 4; const p=Math.pow(10,Math.floor(Math.log10(v))); const n=Math.ceil(v/p*4)/4*p; return Math.ceil(n/4)*4; }
+function trendCard(){
+  const d=bossTrend();
+  if(!d) return '<div class="empty">暂无趋势数据</div>';
+  const rb=(v,t)=>'<button data-r="'+v+'"'+(String(BTR.range)===String(v)?' class="on"':'')+'>'+t+'</button>';
+  const gb=(v,t)=>'<button data-g="'+v+'"'+(BTR.grain===v?' class="on"':'')+'>'+t+'</button>';
+  const custom='<span id="btrCustom" style="display:'+(BTR.range==='custom'?'inline-flex':'none')+';gap:6px;align-items:center">'
+   +'<input type="date" id="btrFrom" value="'+(BTR.from||d.axisMin)+'" min="'+d.axisMin+'" max="'+d.axisMax+'">'
+   +'<span class="hint">~</span><input type="date" id="btrTo" value="'+(BTR.to||d.axisMax)+'" min="'+d.axisMin+'" max="'+d.axisMax+'"></span>';
+  return '<div class="tcard">'
+   +'<div class="tbar"><div class="seg" id="btrRange">'+rb(7,'近7天')+rb(14,'近14天')+rb(30,'近30天')+rb(0,'全部')+rb('custom','自定义')+'</div>'
+   +custom
+   +'<span class="grow"></span><span class="hint">粒度</span><div class="seg" id="btrGrain">'+gb('day','按日')+gb('week','按周')+'</div></div>'
+   +'<div class="tsum">'+d.from+' ~ '+d.to+' · 提交 <b>'+d.S+'</b> · 通过 <b class="okc">'+d.P+'</b> · 驳回 <b class="rej">'+d.R+'</b> · 通过率 <b>'+d.rate+'%</b></div>'
+   +'<div class="legend"><span><i style="background:#2563eb"></i>提交</span><span><i style="background:#2f8a6d"></i>通过</span><span><i style="background:#c0392b"></i>驳回</span></div>'
+   +trendSvg(d)
+   +'<div class="tdet"><a class="lnk" id="btrDetail">'+(BTR.detail?'收起明细 ▴':'展开逐日明细 ▾')+'</a></div>'
+   +'<div id="btrDetailBox" class="tdetwrap'+(BTR.detail?'':' hide')+'">'+trendDetail(d)+'</div>'
+   +'</div>';
+}
+function trendSvg(d){
+  const W=1000,H=230,pl=44,pr=14,pt=14,pb=30;
+  const n=d.cats.length, band=(W-pl-pr)/Math.max(1,n);
+  const maxV=niceMax(Math.max(1,...d.sub,...d.pass,...d.reject));
+  const X=i=>pl+band*(i+0.5), Y=v=>H-pb-(H-pt-pb)*(v/maxV);
+  const poly=a=>a.map((v,i)=>X(i).toFixed(1)+','+Y(v).toFixed(1)).join(' ');
+  let g='';
+  for(let k=0;k<=4;k++){ const v=maxV*k/4, y=Y(v);
+    g+='<line x1="'+pl+'" y1="'+y.toFixed(1)+'" x2="'+(W-pr)+'" y2="'+y.toFixed(1)+'" stroke="#eef2f7"/>'
+     +'<text x="'+(pl-6)+'" y="'+(y+3.5).toFixed(1)+'" text-anchor="end" font-size="10" fill="#94a3b8">'+(v>=1000?(v/1000).toFixed(1)+'k':v)+'</text>';
+  }
+  const step=Math.max(1,Math.ceil(n/8));
+  let xl='';
+  for(let i=0;i<n;i++) if(i%step===0||i===n-1) xl+='<text x="'+X(i).toFixed(1)+'" y="'+(H-10)+'" text-anchor="middle" font-size="10" fill="#94a3b8">'+esc(d.cats[i])+'</text>';
+  const bw=Math.max(3,Math.min(18,band*0.52));
+  let bars='';
+  for(let i=0;i<n;i++) if(d.sub[i]>0){ const h=(H-pt-pb)*(d.sub[i]/maxV); bars+='<rect x="'+(X(i)-bw/2).toFixed(1)+'" y="'+(H-pb-h).toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+h.toFixed(1)+'" rx="2" fill="#93b4f7"/>'; }
+  const dots=(a,col)=>a.map((v,i)=>v>0?'<circle cx="'+X(i).toFixed(1)+'" cy="'+Y(v).toFixed(1)+'" r="3" fill="#fff" stroke="'+col+'" stroke-width="2"/>':'').join('');
+  let hits='';
+  for(let i=0;i<n;i++) hits+='<rect class="hit" data-i="'+i+'" x="'+(pl+band*i).toFixed(1)+'" y="'+pt+'" width="'+band.toFixed(1)+'" height="'+(H-pt-pb)+'"/>';
+  return '<div class="tchart" id="btrChart">'
+   +'<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet">'+g+xl+bars
+   +'<polyline fill="none" stroke="#2f8a6d" stroke-width="2" points="'+poly(d.pass)+'"/>'+dots(d.pass,'#2f8a6d')
+   +'<polyline fill="none" stroke="#c0392b" stroke-width="2" points="'+poly(d.reject)+'"/>'+dots(d.reject,'#c0392b')
+   +hits+'</svg><div class="ttip hide" id="btrTip"></div></div>';
+}
+function trendDetail(d){
+  const rows=d.cats.map((c,i)=>({full:d.full[i],s:d.sub[i],p:d.pass[i],r:d.reject[i]})).reverse();
+  return '<table><thead><tr><th>'+(d.weeks?'区间':'日期')+'</th><th>提交</th><th>通过</th><th>驳回</th><th>通过率</th></tr></thead><tbody>'
+   +rows.map(x=>'<tr><td>'+esc(x.full)+'</td><td>'+x.s+'</td><td class="okc">'+x.p+'</td><td class="rej">'+x.r+'</td><td>'+pct(x.p,x.r)+'%</td></tr>').join('')
+   +'</tbody></table>';
+}
+function bindTrend(){
+  const d=bossTrend(); if(!d) return;
+  const range=$('btrRange'); if(range) range.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    const v=b.dataset.r; BTR.range=(v==='custom')?'custom':Number(v);
+    if(BTR.range==='custom'){ if(!BTR.from) BTR.from=d.axisMin; if(!BTR.to) BTR.to=d.axisMax; }
+    drawBoss(true);
+  });
+  const grain=$('btrGrain'); if(grain) grain.querySelectorAll('button').forEach(b=>b.onclick=()=>{ BTR.grain=b.dataset.g; drawBoss(true); });
+  const f=$('btrFrom'), t=$('btrTo');
+  if(f) f.onchange=()=>{ BTR.from=f.value; BTR.range='custom'; drawBoss(true); };
+  if(t) t.onchange=()=>{ BTR.to=t.value; BTR.range='custom'; drawBoss(true); };
+  const det=$('btrDetail'); if(det) det.onclick=()=>{ BTR.detail=!BTR.detail; drawBoss(true); };
+  const chart=$('btrChart'), tip=$('btrTip');
+  if(chart&&tip){
+    const show=i=>{
+      tip.innerHTML='<b>'+esc(d.full[i])+'</b><br>提交 '+d.sub[i]+' · 通过 '+d.pass[i]+' · 驳回 '+d.reject[i]+'<br>通过率 '+pct(d.pass[i],d.reject[i])+'%';
+      const hit=chart.querySelector('.hit[data-i="'+i+'"]').getBoundingClientRect(), cr=chart.getBoundingClientRect();
+      const w=tip.offsetWidth||130;
+      tip.style.left=Math.max(2,Math.min(cr.width-w-2,(hit.left-cr.left)+(hit.width-w)/2))+'px';
+      tip.classList.remove('hide');
+    };
+    chart.querySelectorAll('.hit').forEach(h=>{ h.addEventListener('mouseenter',()=>show(Number(h.dataset.i))); h.addEventListener('click',()=>show(Number(h.dataset.i))); });
+    chart.addEventListener('mouseleave',()=>tip.classList.add('hide'));
+  }
+}
+function draw(){drawTabs();if(!STATS)return;$('gen').textContent='更新于 '+(STATS.generated_at?new Date(STATS.generated_at).toLocaleString('zh-CN'):'');if(TAB==='ops')drawOps();else if(TAB==='boss')drawBoss();else if(TAB==='review')drawReview();else if(TAB==='queue')drawQueue();else drawList()}
+const QREASONS=[['report_reason_evaluate_product_other_shop','评价内容非交易商品或内容无意义'],['report_reason_fake_negative_comment','评价等级为差评内容为好评'],['report_reason_wrong_size','消费者买错型号'],['report_reason_low_politics_guns','评价内容中包含辱骂或不当词汇'],['report_reason_evaluate_advertise','评价内容包含广告信息'],['report_reason_before_signing_evaluate','订单签收前评价商品质量问题'],['report_reason_negative_comment_compensation','利用中差评骗赔'],['report_reason_business_evil_compete','同行恶意竞争'],['report_reason_platform_voucher','平台发券导致的降价差评'],['report_reason_return_wrong_reason','消费者选择的品质退货与事实不符']];
+const QST=['待核对','已确认','已提交','不举报','已失效'];
+// 角标显示名（数组里的值仍是内部状态，筛选与统计不受影响）
+const QSTLABEL={'已确认':'已确认待执行'};
+const qLabel=s=>QSTLABEL[s]||s;
+// 云端历史版本会把状态拼成「已确认（待本地执行）」，这里统一归一化，
+// 否则这些单会被精确匹配的筛选和角标统计全部漏掉。
+const qStatus=x=>String((x&&x.status)||'').replace(/（待本地执行）$/,'');
 /* 按举报理由预置的投诉文案：人在「核对」页点确认时，提交给本地定时任务的就是这里的内容。
    目标是把理由说到点子上，而不是套一句笼统的「未提供有效证明」。 */
 const QTPL={
@@ -525,6 +808,135 @@ function qTplOk(x,sub){
 }
 // 待核对 + 有预置文案 + 内容确实像好评 → 默认就用预置文案；其余情况沿用本地推来的 AI 原稿
 const qDesc=(x,sub)=>{ const t=qTpl(x,sub); return (qStatus(x)==='待核对'&&t&&qTplOk(x,sub))?t:(x.desc||''); };
+let QF={status:'待核对',shop:'',q:''}, QDATA={items:[]};
+function qFiltered(){
+  return QDATA.items.filter(x=>{
+    if(QF.status && qStatus(x)!==QF.status) return false;
+    if(QF.shop && (x.shop||'').toLowerCase().indexOf(QF.shop.toLowerCase())<0) return false;
+    if(QF.q){ const h=((x.shop||'')+' '+(x.order_id||'')+' '+(x.content||'')).toLowerCase(); if(h.indexOf(QF.q)<0) return false; }
+    if(!favFilter(x)) return false;
+    return true;
+  });
+}
+/* ---------- 用户身份 + 我关注的店铺（按工作台账号隔离） ---------- */
+let ME=null;
+async function loadMe(){
+  try{ const j=await fetch('/appeal/api/me').then(r=>r.json()); ME=j.user||null; }catch(e){ ME=null; }
+}
+let FAV=[], FAVONLY=false, FAVOPEN=false;
+async function loadFav(){
+  FAV=[];
+  if(!ME) return;
+  try{ const j=await fetch('/appeal/api/favorites').then(r=>r.ok?r.json():null); FAV=(j&&j.shops)||[]; }catch(e){}
+}
+async function saveFav(shops){
+  const j=await fetch('/appeal/api/favorites',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({shops})}).then(r=>r.json());
+  if(!j.ok){ alert('收藏失败：'+(j.error||'网络错误')); return false; }
+  FAV=j.shops||[]; return true;
+}
+async function toggleFav(shop){
+  if(!ME){ alert('请先在工作台登录后再收藏店铺'); return; }
+  const next=FAV.includes(shop)?FAV.filter(x=>x!==shop):[...FAV,shop];
+  if(await saveFav(next)){ drawQueue(); const q=$('qshop'); if(q) renderShopList(q.value.trim()); }
+}
+const isFav=sh=>FAV.indexOf(sh)>=0;
+function favFilter(x){ return !FAVONLY || isFav(x.shop||''); }
+/* 店铺下拉：可搜索，每行前面一个 ⭐（点击收藏/取消），点名字=只看这家 */
+function renderShopList(query){
+  const list=$('qshop-list'); if(!list) return;
+  if(!FAVOPEN){ list.style.display='none'; return; }
+  const q=(query||'').toLowerCase();
+  const pool=[...new Set((QDATA.items||[]).map(x=>x.shop).filter(Boolean))];
+  const match=pool.filter(sh=>!q||sh.toLowerCase().indexOf(q)>=0);
+  match.sort((a,b)=>(isFav(b)?1:0)-(isFav(a)?1:0)||a.localeCompare(b,'zh-CN'));
+  const shown=match.slice(0,60);
+  list.innerHTML=(FAV.length?'<div class="combo-sep">已关注 '+FAV.length+' 家</div>':'')
+    + (shown.length?shown.map(sh=>'<div class="combo-item'+(isFav(sh)?' on':'')+'" data-shop="'+esc(sh)+'">'
+        +'<span class="star" data-star="'+esc(sh)+'" title="'+(isFav(sh)?'取消关注':'关注这家店')+'">'+(isFav(sh)?'⭐':'☆')+'</span>'
+        +'<span class="nm">'+esc(sh)+'</span></div>').join('')
+      :'<div class="combo-sep">没有匹配的店铺</div>')
+    +(match.length>shown.length?'<div class="combo-sep">还有 '+(match.length-shown.length)+' 家，继续输入以缩小范围</div>':'');
+  list.querySelectorAll('.star').forEach(el=>el.onclick=ev=>{ ev.stopPropagation(); toggleFav(el.dataset.star); });
+  list.querySelectorAll('.combo-item').forEach(el=>el.onclick=()=>{
+    const q=$('qshop'); if(q) q.value=el.dataset.shop;
+    QF.shop=el.dataset.shop; FAVOPEN=false; list.style.display='none'; drawQueue();
+  });
+  list.style.display='block';
+}
+function drawFavChips(allShops){
+  const box=$('favchips'); if(!box) return;
+  if(!ME){ box.style.display='none'; return; }
+  box.style.display='flex';
+  const n=(QDATA.items||[]).filter(x=>isFav(x.shop||'')).length;
+  box.innerHTML='<button class="chip'+(FAVONLY?' on':'')+'" data-favonly="1" title="只看我关注的店铺">⭐ 只看关注<i>'+n+'</i></button>'
+    + (FAV.length
+        ? FAV.map(sh=>'<button class="chip'+(QF.shop===sh?' on':'')+'" data-favshop="'+esc(sh)+'" title="'+esc(sh)+'">'+esc(sh)+' <b class="star" data-star="'+esc(sh)+'" title="取消关注">⭐</b></button>').join('')
+        : '<span class="uthint">还没有关注的店铺：在上面的搜索框下拉里点 ☆ 收藏，之后这里会变成一键筛选。</span>');
+  box.querySelector('[data-favonly]').onclick=()=>{ FAVONLY=!FAVONLY; drawQueue(); };
+  box.querySelectorAll('[data-favshop]').forEach(b=>b.onclick=ev=>{
+    if(ev.target.dataset.star){ toggleFav(ev.target.dataset.star); return; }
+    const sh=b.dataset.favshop; QF.shop=(QF.shop===sh?'':sh);
+    const q=$('qshop'); if(q) q.value=QF.shop;
+    drawQueue();
+  });
+}
+
+/* ---------- 人工上传凭证图片 ---------- */
+const QIMG={}, QLOADING={}, QMAX=8, QMAXB=4*1024*1024;
+function fileToBase64(f){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]||'');r.onerror=()=>rej(new Error('读取文件失败'));r.readAsDataURL(f)})}
+function attEditor(oid){
+  return '<div class="att" id="qatt_'+oid+'"></div>'
+   +'<div class="attbar"><label class="attbtn">📎 上传凭证图片<input class="qfile" type="file" accept="image/*" multiple data-oid="'+oid+'"></label>'
+   +'<span class="hint">jpg/png/webp，单张 ≤4MB，最多 8 张；随「确认提交」一起交给本地定时任务，确认前可删除。</span></div>';
+}
+function attReadonly(images){
+  if(!images||!images.length) return '';
+  return '<div class="att">'+images.map(im=>'<a class="attitem" href="'+esc(im.url)+'" target="_blank" rel="noopener" title="'+esc(im.name||'')+'"><img src="'+esc(im.url)+'" alt=""></a>').join('')
+   +'<span class="hint">已随确认提交 '+images.length+' 张</span></div>';
+}
+const attBlock=x=>qStatus(x)==='待核对'?attEditor(x.order_id):attReadonly(x.images);
+function renderAtt(oid){
+  const el=$('qatt_'+oid); if(!el) return;
+  const list=QIMG[oid]||[];
+  el.innerHTML=list.map((im,i)=>{
+    const thumb=im.url?('<img src="'+esc(im.url)+'" alt="">'):'';
+    const st=im.status==='uploading'?'<span class="atts">上传中…</span>':(im.status==='error'?'<span class="atte">上传失败</span>':'');
+    return '<span class="attitem" title="'+esc(im.name||'')+'">'+thumb+st+'<b class="attx" data-oid="'+oid+'" data-i="'+i+'" title="移除">✕</b></span>';
+  }).join('');
+  el.querySelectorAll('.attx').forEach(b=>b.onclick=ev=>{ev.preventDefault();removeAtt(b.dataset.oid,Number(b.dataset.i))});
+}
+async function loadUploads(oid){
+  if(QIMG[oid]!==undefined||QLOADING[oid]) return;
+  QLOADING[oid]=1;
+  try{
+    const j=await fetch('/appeal/api/uploads?order_id='+encodeURIComponent(oid)).then(r=>r.json());
+    if(QIMG[oid]===undefined) QIMG[oid]=(j.images||[]).map(i=>Object.assign({},i,{status:'done'}));
+  }catch(e){ if(QIMG[oid]===undefined) QIMG[oid]=[]; }
+  delete QLOADING[oid]; renderAtt(oid);
+}
+async function removeAtt(oid,i){
+  const list=QIMG[oid]||[]; const im=list[i]; if(!im) return;
+  if(im.status==='done'&&im.file){ try{ await fetch('/appeal/api/upload/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:oid,file:im.file})}); }catch(e){} }
+  list.splice(i,1); renderAtt(oid);
+}
+async function onPickFiles(oid,input){
+  const files=[...(input.files||[])]; input.value='';
+  const list=QIMG[oid]=QIMG[oid]||[];
+  for(const f of files){
+    if(list.filter(i=>i.status!=='error').length>=QMAX){ alert('最多上传 '+QMAX+' 张图片'); break; }
+    if(!/^image\\//.test(f.type||'')){ alert('只支持图片文件：'+f.name); continue; }
+    if(f.size>QMAXB){ alert('「'+f.name+'」超过 4MB，请压缩后再传'); continue; }
+    const item={name:f.name,mime:f.type,status:'uploading'};
+    list.push(item); renderAtt(oid);
+    try{
+      const data=await fileToBase64(f);
+      const j=await fetch('/appeal/api/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:oid,name:f.name,mime:f.type,data:data})}).then(r=>r.json());
+      if(!j.ok) throw new Error(j.error||'上传失败');
+      Object.assign(item,j.image,{status:'done'});
+    }catch(e){ item.status='error'; item.error=String((e&&e.message)||e); }
+    renderAtt(oid);
+  }
+}
 function qEditBlock(x){
   const rec=(x.recommend&&x.recommend.is_match)?('<span class="tag">平台推荐:'+esc(x.recommend.sub_scene_type_name||'')+'</span>'):'';
   const pa=x.preAudit?('<span class="tag" style="background:'+(x.preAudit.level==='low'?'#fdeceb;color:#c0392b':'#e9f7f0;color:#1f7a55')+'">预审:'+(x.preAudit.level||'?')+'</span>'):'';
@@ -551,96 +963,92 @@ function qEditBlock(x){
 
 function drawQueue(){
   if(!$('queuewrap')) return;
-  if(document.activeElement && $('queue').contains(document.activeElement) && /TEXTAREA|INPUT|SELECT/.test(document.activeElement.tagName)) return; // 正在编辑时不重绘
-  const all=QDATA.items||[]; const cnt={}; for(const s of ['待核对','已确认','已提交','不举报','已失效']) cnt[s]=all.filter(x=>x.status===s).length;
+  if(document.activeElement && $('queuewrap').contains(document.activeElement) && /TEXTAREA|INPUT|SELECT/.test(document.activeElement.tagName)) return; // 行内编辑时不重绘（顶部筛选/搜索框不在此列，保证输入即过滤）
+  const all=QDATA.items||[]; const cnt={}; for(const s of QST) cnt[s]=all.filter(x=>qStatus(x)===s).length;
   const el=$('qchips');
-  el.innerHTML=['待核对','已确认','已提交','不举报','已失效'].map(k=>'<button class="chip'+(QF.status===k?' on':'')+'" data-st="'+k+'">'+k+'<i>'+(cnt[k]||0)+'</i></button>').join('');
+  el.innerHTML=QST.map(k=>'<button class="chip'+(QF.status===k?' on':'')+'" data-st="'+k+'">'+esc(qLabel(k))+'<i>'+(cnt[k]||0)+'</i></button>').join('');
   el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ QF.status=b.dataset.st; drawQueue(); });
   const shops=[...new Set(all.map(x=>x.shop).filter(Boolean))];
+  drawFavChips(shops);
   const qs=$('qshop');
-  if(!qs.options.length || qs.dataset.n!=String(shops.length)){
-    qs.dataset.n=String(shops.length);
-    qs.innerHTML='<option value="">全部店铺</option>'+shops.map(s=>'<option'+(QF.shop===s?' selected':'')+'>'+esc(s)+'</option>').join('');
-    qs.onchange=()=>{ QF.shop=qs.value; drawQueue(); };
-  }
+  if(document.activeElement!==qs) qs.value=QF.shop||'';        // 正在输入时不要覆盖用户内容
+  qs.oninput=()=>{ QF.shop=qs.value.trim(); FAVOPEN=true; renderShopList(qs.value.trim()); drawQueue(); };
+  qs.onfocus=()=>{ FAVOPEN=true; renderShopList(qs.value.trim()); };
+  qs.onkeydown=ev=>{ if(ev.key==='Escape'){ FAVOPEN=false; renderShopList(''); } };
+  if(FAVOPEN) renderShopList(qs.value.trim()); else $('qshop-list').style.display='none';
   const rows=qFiltered().sort((a,b)=>(b.filledAt||'').localeCompare(a.filledAt||''));
-  if(!rows.length){ $('queuewrap').innerHTML='<div class="empty">没有'+esc(QF.status||'')+'的记录。</div>'; return; }
+  if(!rows.length){ $('queuewrap').innerHTML='<div class="empty">没有'+esc(qLabel(QF.status)||'')+'的记录。</div>'; return; }
   $('queuewrap').innerHTML=rows.map(x=>qEditBlock(x)).join('');
   $('queuewrap').querySelectorAll('button.qa').forEach(b=>b.onclick=()=>queueAct(b.dataset.oid,b.dataset.act));
+  $('queuewrap').querySelectorAll('input.qfile').forEach(inp=>inp.onchange=()=>onPickFiles(inp.dataset.oid,inp));
+  // 理由下拉切换后，✨ 按钮按当前选中的理由决定能不能套用
+  $('queuewrap').querySelectorAll('select[id^="qsub_"]').forEach(sel=>{
+    const oid=sel.id.slice(5), x=(QDATA.items||[]).find(i=>i.order_id===oid), a=$('queuewrap').querySelector('[data-tpl="'+oid+'"]');
+    if(a&&x) a.style.display=qTpl(x,sel.value)?'':'none';
+  });
+  $('queuewrap').querySelectorAll('[data-tpl]').forEach(a=>a.onclick=()=>{
+    const oid=a.dataset.tpl, x=(QDATA.items||[]).find(i=>i.order_id===oid), sel=$('qsub_'+oid), ta=$('qta_'+oid);
+    const sub=sel?sel.value:(x&&x.sub), t=qTpl(x,sub);
+    if(!t){ alert('当前选中的举报理由还没有预置文案，请手动填写'); return; }
+    if(!qTplOk(x,sub) && !confirm('这条评价内容看着不像「好评内容」，确定要套用这段文案吗？\\n\\n内容：'+((x&&x.content)||''))) return;
+    if(ta) ta.value=t;
+  });
+  $('queuewrap').querySelectorAll('[data-ai]').forEach(a=>a.onclick=()=>{
+    const x=(QDATA.items||[]).find(i=>i.order_id===a.dataset.ai), ta=$('qta_'+a.dataset.ai);
+    if(ta&&x) ta.value=x.desc||'';
+  });
+  rows.forEach(x=>{ if(qStatus(x)==='待核对'){ renderAtt(x.order_id); loadUploads(x.order_id); } });
 }
-/* ---------- 人工上传凭证图片（本地）---------- */
-const QIMG={}, QLOADING={}, QMAX=8, QMAXB=4*1024*1024;
-function fileToBase64(f){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]||'');r.onerror=()=>rej(new Error('读取文件失败'));r.readAsDataURL(f)})}
-function attEditor(oid){
-  return '<div class="att" id="qatt_'+oid+'"></div>'
-   +'<div class="attbar"><label class="attbtn">📎 上传凭证图片<input class="qfile" type="file" accept="image/*" multiple data-oid="'+oid+'"></label>'
-   +'<span class="hint">jpg/png/webp，单张 ≤4MB，最多 8 张；随「确认提交」一起交给提交任务。</span></div>';
-}
-function attReadonly(images){
-  if(!images||!images.length) return '';
-  return '<div class="att">'+images.map(im=>'<a class="attitem" href="'+esc(im.url)+'" target="_blank" rel="noopener" title="'+esc(im.name||'')+'"><img src="'+esc(im.url)+'" alt=""></a>').join('')+'<span class="hint">已随确认提交 '+images.length+' 张</span></div>';
-}
-const attBlock=x=>x.status==='待核对'?attEditor(x.order_id):attReadonly(x.images);
-function renderAtt(oid){
-  const el=$('qatt_'+oid); if(!el) return;
-  const list=QIMG[oid]||[];
-  el.innerHTML=list.map((im,i)=>{
-    const thumb=im.url?('<img src="'+esc(im.url)+'" alt="">'):'';
-    const st=im.status==='uploading'?'<span class="atts">上传中…</span>':(im.status==='error'?'<span class="atte">上传失败</span>':'');
-    return '<span class="attitem" title="'+esc(im.name||'')+'">'+thumb+st+'<b class="attx" data-oid="'+oid+'" data-i="'+i+'" title="移除">✕</b></span>';
-  }).join('');
-  el.querySelectorAll('.attx').forEach(b=>b.onclick=ev=>{ev.preventDefault();removeAtt(b.dataset.oid,Number(b.dataset.i))});
-}
-async function loadUploads(oid){
-  if(QIMG[oid]!==undefined||QLOADING[oid]) return;
-  QLOADING[oid]=1;
-  try{ const j=await fetch('/uploads?order_id='+encodeURIComponent(oid)).then(r=>r.json()); if(QIMG[oid]===undefined) QIMG[oid]=(j.images||[]).map(i=>Object.assign({},i,{status:'done'})); }
-  catch(e){ if(QIMG[oid]===undefined) QIMG[oid]=[]; }
-  delete QLOADING[oid]; renderAtt(oid);
-}
-async function removeAtt(oid,i){
-  const list=QIMG[oid]||[]; const im=list[i]; if(!im) return;
-  if(im.status==='done'&&im.file){ try{ await fetch('/upload/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:oid,file:im.file})}); }catch(e){} }
-  list.splice(i,1); renderAtt(oid);
-}
-async function onPickFiles(oid,input){
-  const files=[...(input.files||[])]; input.value='';
-  const list=QIMG[oid]=QIMG[oid]||[];
-  for(const f of files){
-    if(list.filter(i=>i.status!=='error').length>=QMAX){ alert('最多上传 '+QMAX+' 张图片'); break; }
-    if(String(f.type||'').indexOf('image/')!==0){ alert('只支持图片文件：'+f.name); continue; }
-    if(f.size>QMAXB){ alert('「'+f.name+'」超过 4MB，请压缩后再传'); continue; }
-    const item={name:f.name,mime:f.type,status:'uploading'}; list.push(item); renderAtt(oid);
-    try{
-      const data=await fileToBase64(f);
-      const j=await fetch('/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:oid,name:f.name,mime:f.type,data:data})}).then(r=>r.json());
-      if(!j.ok) throw new Error(j.error||'上传失败');
-      Object.assign(item,j.image,{status:'done'});
-    }catch(e){ item.status='error'; item.error=String((e&&e.message)||e); }
-    renderAtt(oid);
-  }
-}
-function queueAct(oid,action){
+async function queueAct(oid,action){
   const body={order_id:oid,action:action};
   const ta=$('qta_'+oid), sel=$('qsub_'+oid);
   if(ta) body.desc=ta.value;
   if(sel) body.sub=sel.value;
   if(sel){ const m=QREASONS.find(r=>r[0]===sel.value); if(m) body.label=m[1]; }
+  if(action==='reject'){
+    const r=await askRejectReason();
+    if(!r) return;
+    body.reject_reason=r.reason; body.reject_note=r.note;
+  }
   if(action==='confirm'){
     const list=QIMG[oid]||[];
     if(list.some(i=>i.status==='uploading')){ alert('图片还在上传中，请稍候再点确认'); return; }
-    body.images=list.filter(i=>i.status==='done').map(i=>({file:i.file,name:i.name,mime:i.mime,size:i.size,url:i.url}));
+    body.images=list.filter(i=>i.status==='done').map(i=>({file:i.file,name:i.name,mime:i.mime,size:i.size,sha256:i.sha256}));
   }
-  return (async()=>{
-    try{ await fetch('/queue/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }catch(e){}
-    delete QIMG[oid];
-    await loadQueueData(); drawList(); drawQueue();
-  })();
+  let j={};
+  try{ j=await fetch('/appeal/api/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json()); }catch(e){ j={ok:false,error:String((e&&e.message)||e)}; }
+  if(!j.ok){ alert('提交失败：'+(j.error||'网络错误')); return; }
+  delete QIMG[oid];
+  // 独立核对区（queuewrap）已并入工单列表，可能不存在；提交成功后要重画工单列表，否则按钮不变、看起来像没提交
+  const qw=$('queuewrap');
+  if(qw && document.activeElement && qw.contains(document.activeElement) && document.activeElement.blur) document.activeElement.blur();
+  await loadQueueData(); drawQueue(); drawList();
+  qToast(action==='confirm'?'已确认，等本地定时任务提交':(action==='reject'?'已标记不举报':'已撤回'));
 }
-async function loadQueueData(){ try{ QDATA=await fetch('/queue').then(r=>r.json()); }catch(e){} }
-let LOADING=false;
-function load(){ if(LOADING) return; LOADING=true; Promise.all([fetch('/data').then(r=>r.json()),fetch('/stats').then(r=>r.json()),loadQueueData()]).then(([d,s])=>{DATA=d;STATS=s;draw()}).catch(()=>{}).finally(()=>{LOADING=false})}
+const REJECT_REASONS=['评价属实/不是恶意','买家确有品质问题','证据不足，平台大概率驳回','买家已和客服沟通且合理','理由类型不对，无合适举报项','已过申诉期','AI 稿不对，无需处理','其他'];
+function askRejectReason(){
+  return new Promise(resolve=>{
+    const m=document.createElement('div');
+    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:10000;display:flex;align-items:center;justify-content:center';
+    m.innerHTML='<div style="background:#fff;border-radius:8px;padding:18px 20px;width:360px;box-shadow:0 4px 18px rgba(0,0,0,.2)"><div style="font-weight:600;margin-bottom:10px">为什么不举报？（帮助 AI 学习）</div><select id="rj_r" style="width:100%;padding:6px;margin-bottom:8px"><option value="">请选择原因</option>'+REJECT_REASONS.map(r=>'<option>'+r+'</option>').join('')+'</select><input id="rj_n" placeholder="补充说明（选填）" style="width:100%;padding:6px;box-sizing:border-box;margin-bottom:12px"><div style="text-align:right"><button id="rj_c">取消</button> <button id="rj_ok" class="primary">确认不举报</button></div></div>';
+    document.body.appendChild(m);
+    const done=v=>{ m.remove(); resolve(v); };
+    m.querySelector('#rj_c').onclick=()=>done(null);
+    m.querySelector('#rj_ok').onclick=()=>{ const reason=m.querySelector('#rj_r').value; if(!reason){ alert('请先选择不举报的原因'); return; } done({reason,note:m.querySelector('#rj_n').value.trim()}); };
+  });
+}
+function qToast(msg){
+  let el=$('qtoast');
+  if(!el){ el=document.createElement('div'); el.id='qtoast'; el.style.cssText='position:fixed;left:50%;top:24px;transform:translateX(-50%);background:#1f7a55;color:#fff;padding:8px 18px;border-radius:6px;font-size:14px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,.2)'; document.body.appendChild(el); }
+  el.textContent=msg; el.style.display='block';
+  clearTimeout(qToast.t); qToast.t=setTimeout(()=>{ el.style.display='none'; },2500);
+}
+async function loadQueueData(){ try{ QDATA=await fetch('/appeal/api/queue').then(r=>r.json()); }catch(e){} }
+function applyUrlShop(){ try{ const sp=new URLSearchParams(location.search); const sh=sp.get('shop'); if(sh){ F.shop=sh; TAB='list'; } }catch(e){} }
+applyUrlShop();
+async function load(){await loadMe();await loadFav();await Promise.all([fetch('/appeal/api/data').then(r=>r.json()),fetch('/appeal/api/stats').then(r=>r.json()),loadQueueData()]).then(([d,s])=>{DATA=d;STATS=s;draw()}).catch(()=>{})}
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{TAB=b.dataset.tab;draw()});
+document.addEventListener('click',ev=>{ if(!ev.target.closest || !ev.target.closest('#qshop-combo')){ FAVOPEN=false; const l=$('qshop-list'); if(l) l.style.display='none'; } });
 function applyRange(){
   const rg=$('frange').value; $('fcustom').classList.toggle('hide', rg!=='custom');
   if(rg && rg!=='custom'){ const d=new Date(); d.setDate(d.getDate()-Number(rg));
@@ -653,17 +1061,16 @@ function applyRange(){
 function bindFilters(){
   $('fshop').onchange=()=>{ F.shop=$('fshop').value; PAGE=1; drawList(); };
   if($('fscenario')) $('fscenario').onchange=()=>{ F.scenario=$('fscenario').value; PAGE=1; drawList(); };
-  if($('fsort')) $('fsort').onchange=()=>{ SORT.field=$('fsort').value; PAGE=1; drawList(); };
-  if($('fdir')) $('fdir').onclick=()=>{ SORT.dir=(SORT.dir==='desc')?'asc':'desc'; $('fdir').textContent=(SORT.dir==='desc')?'↓ 降序':'↑ 升序'; PAGE=1; drawList(); };
   $('frange').onchange=()=>{ applyRange(); };
   $('fd1').onchange=$('fd2').onchange=()=>{ F.from=$('fd1').value; F.to=$('fd2').value; PAGE=1; drawList(); };
   $('fq').oninput=()=>{ F.q=$('fq').value.trim().toLowerCase(); PAGE=1; drawList(); };
-  $('qq').oninput=()=>{ QF.q=$('qq').value.trim().toLowerCase(); drawQueue(); };
+  if($('fsort')) $('fsort').onchange=()=>{ SORT.field=$('fsort').value; PAGE=1; drawList(); };
+  if($('fdir')) $('fdir').onclick=()=>{ SORT.dir=(SORT.dir==='desc')?'asc':'desc'; $('fdir').textContent=(SORT.dir==='desc')?'↓ 降序':'↑ 升序'; PAGE=1; drawList(); };
+  if($('qq')) if($('qq')) $('qq').oninput=()=>{ QF.q=$('qq').value.trim().toLowerCase(); drawQueue(); };
   $('fpage').onchange=()=>{ PAGE=1; drawList(); };
   $('clearf').onclick=()=>{ F={status:'',kind:'',shop:'',q:'',from:'',to:'',scenario:''}; $('fq').value=''; $('frange').value=''; if($('fscenario')) $('fscenario').value=''; $('fcustom').classList.add('hide'); PAGE=1; drawList(); };
 }
-load(); setInterval(()=>{ if(!document.hidden) load() },30000);
-bindFilters();
+load(); bindFilters(); setInterval(load,30000);
 </script></body></html>`;
 
 function createAppealWeb({app, appeal}){
