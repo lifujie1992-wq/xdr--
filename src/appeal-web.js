@@ -141,11 +141,12 @@ h2{font-size:14px;margin:22px 0 10px}
 .qrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 table.list col.c5{width:auto}
 table.list col.c12{width:620px}
+.hgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:6px 0 14px}.hcard{background:#fff;border:1px solid #e3e8ef;border-radius:8px;padding:10px 14px}.hcard .hl{font-size:12px;color:#64748b;margin-bottom:4px}.hcard .hv{font-size:16px;font-weight:600;color:#0f172a}.hrej{list-style:none;margin:4px 0 14px;padding:0;font-size:13px;line-height:1.9;color:#b42318}
 </style></head><body>
 <header>
   <h1>申诉工作台</h1>
   <div class="tabs">
-    <button data-tab="ops" class="on">运营</button>
+    <button data-tab="ops" class="on">首页</button>
     <button data-tab="boss">老板</button>
     <button data-tab="review">复盘</button>
     <button data-tab="list">工单</button>
@@ -194,11 +195,63 @@ function kindBd(k){return '<span class="kindbd '+(k==='品退'?'kd-q':'kd-r')+'"
 function badge(s){const M={'已举报':'st-doing','举报成功':'st-ok','举报失败':'st-no','不可举报':'st-no','不可申诉':'st-no','未核查':'st-todo','需转人工':'st-human','未处理':'st-todo'};const c=M[s]||'st-human';return '<span class="st '+c+'">'+esc(s||'—')+'</span>'}
 function auditCell(x){const tip=esc((x.auditMsg||'').replace(/\\s+/g,' ').slice(0,200));if(!/^(已举报|举报成功|举报失败)$/.test(x.status||''))return '<td></td>';if(x.auditStatus===3)return '<td class="rej" title="'+tip+'">❌ 平台拒绝：'+esc((x.auditMsg||'').replace(/^失败原因[:：]/,'').split(';平台建议')[0])+'</td>';if(x.auditStatus===6)return '<td class="okc">✅ 审核通过</td>';if(x.auditStatus==null)return '<td class="wait">平台记录待同步</td>';return '<td class="wait">审核中</td>'}
 function drawTabs(){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===TAB));['ops','boss','review','list'].forEach(t=>$(t).classList.toggle('hide',t!==TAB))}
+// 首页：按"平台产生 / 我们的举报 / 店铺明细 / 今日驳回"组织，直接由工单全量计算。
+function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function dayKey(v){ if(!v) return ''; var s=String(v).trim(); if(s.indexOf('T')>0){ var d=new Date(s); return isNaN(d)?s.slice(0,10):ymd(d) } return s.slice(0,10).split('/').join('-') }
+function homeStats(items,now){
+  now=now||new Date(); var today=ymd(now); var d30=ymd(new Date(now.getTime()-29*86400000));
+  var SUB={'已举报':1,'举报成功':1,'举报失败':1};
+  var H={today:today,fresh:{t:{},m:{}},can:{t:{},m:{}},sub:{today:0,all:0,byKind:{},pass:{},fail:{},ai:0,human:0},shops:{},rej:{}};
+  function inc(o,k){o[k]=(o[k]||0)+1}
+  function slot(shop){ return H.shops[shop]||(H.shops[shop]={shop:shop,newToday:{},ok:{},no:{},subToday:0}) }
+  for(var i=0;i<items.length;i++){
+    var x=items[i], k=x.kind||'其他', day=dayKey(x.date||x.feedback_date), sp=slot(x.shop||'（未知店铺）');
+    var can=x.appealable==='1'||x.appealable===1||x.status==='未处理';
+    if(day===today){ inc(H.fresh.t,k); inc(sp.newToday,k); if(can) inc(H.can.t,k) }
+    if(day>=d30&&day<=today){ inc(H.fresh.m,k); if(can) inc(H.can.m,k) }
+    if(SUB[x.status]){
+      var sd=dayKey(x.submitted_at||x.operated_at);
+      H.sub.all++; inc(H.sub.byKind,k);
+      if(sd===today){ H.sub.today++; sp.subToday++ }
+      if(x.submitter==='AI提交') H.sub.ai++; else H.sub.human++;
+      if(x.status==='举报成功'){ inc(H.sub.pass,k); inc(sp.ok,k) }
+      if(x.status==='举报失败'){
+        inc(H.sub.fail,k); inc(sp.no,k);
+        if(dayKey(x.operated_at||x.submitted_at)===today){ var m=String(x.auditMsg||x.why||'（无驳回说明）').replace('失败原因：','').replace('失败原因:','').split(';平台建议')[0].trim(); var r=H.rej[k]||(H.rej[k]={}); inc(r,m) }
+      }
+    }
+  }
+  return H;
+}
+function homeHtml(H,esc){
+  var KS=['品退','中差评'];
+  function two(o){ return '品退 '+(o['品退']||0)+' ｜ 中差评 '+(o['中差评']||0) }
+  function rate(ok,no){ var n=(ok||0)+(no||0); return n?Math.round((ok||0)/n*100)+'%':null }
+  function blk(t,v){ return '<div class="hcard"><div class="hl">'+t+'</div><div class="hv">'+v+'</div></div>' }
+  var s=H.sub, allPass=(s.pass['品退']||0)+(s.pass['中差评']||0), allFail=(s.fail['品退']||0)+(s.fail['中差评']||0);
+  var tot=s.ai+s.human, pc=function(n){return tot?Math.round(n/tot*100):0};
+  var h='<h2>平台产生</h2><div class="hgrid">'
+   +blk('今日新增',two(H.fresh.t))+blk('今日可申诉',two(H.can.t))+blk('近30天新增',two(H.fresh.m))+blk('近30天可申诉',two(H.can.m))+'</div>';
+  h+='<h2>我们的举报</h2><div class="hgrid">'
+   +blk('今日提交',s.today+' 单')
+   +blk('累计提交',s.all+' 单（品退 '+(s.byKind['品退']||0)+' ｜ 中差评 '+(s.byKind['中差评']||0)+'）')
+   +blk('累计通过率',(rate(allPass,allFail)||'-')+'（品退 '+(rate(s.pass['品退'],s.fail['品退'])||'-')+' ｜ 中差评 '+(rate(s.pass['中差评'],s.fail['中差评'])||'-')+'）')
+   +blk('提交人','AI '+s.ai+'（'+pc(s.ai)+'%）· 人工 '+s.human+'（'+pc(s.human)+'%）')+'</div>';
+  var rows=Object.values(H.shops).filter(function(p){return (p.newToday['品退']||0)+(p.newToday['中差评']||0)+p.subToday>0});
+  var idle=Object.keys(H.shops).length-rows.length;
+  rows.sort(function(a,b){return ((b.newToday['品退']||0)+(b.newToday['中差评']||0))-((a.newToday['品退']||0)+(a.newToday['中差评']||0))});
+  function cell(ok,no){ var r=rate(ok,no); return r?r+' ('+((ok||0)+(no||0))+')':'-' }
+  h+='<h2>店铺明细</h2><table><thead><tr><th>店铺</th><th>今日新增 品退 / 中差评</th><th>品退通过率</th><th>中差评通过率</th></tr></thead><tbody>'
+   +rows.map(function(p){return '<tr><td>'+esc(p.shop)+'</td><td>'+(p.newToday['品退']||0)+' / '+(p.newToday['中差评']||0)+'</td><td>'+cell(p.ok['品退'],p.no['品退'])+'</td><td>'+cell(p.ok['中差评'],p.no['中差评'])+'</td></tr>'}).join('')
+   +'</tbody></table>'+(idle>0?'<div class="hint">另有 '+idle+' 家店今日无动作</div>':'');
+  KS.forEach(function(k){
+    var r=H.rej[k]||{}, e=Object.entries(r).sort(function(a,b){return b[1]-a[1]});
+    h+='<h2>❌ 今日驳回（'+k+'）</h2>'+(e.length?'<ul class="hrej">'+e.map(function(z){var t=z[0].length>40?z[0].slice(0,40)+'…':z[0];return '<li title="'+esc(z[0])+'">· '+esc(t)+' ×'+z[1]+'</li>'}).join('')+'</ul>':'<div class="empty">今日无驳回</div>');
+  });
+  return h;
+}
 function drawOps(){
-  const o=STATS.ops;
-  $('ops').innerHTML=kindCards(STATS.byKind||{})
-   +'<h2>驳回原因 TOP（运营要盯这个）</h2>'+rejTopTable()
-   +'<h2>按举报原因的成功率</h2>'+reasonTable(STATS.review.byReason);
+  $('ops').innerHTML=homeHtml(homeStats((DATA&&DATA.items)||[]),esc);
 }
 function drawBoss(){
   const b=STATS.boss;
