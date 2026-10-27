@@ -37,6 +37,29 @@ def finalize_worklist(results,dataDir,action):
             r['candidates']=r['candidates'][:60]
     return str(file),len(rows)
 
+def rejudge_quality_pool(dataDir,results):
+    """采集是增量的：池里以前判「不属主观」的单不会再扫到。规则更新后按新规则重判，转为可申诉的补进工单。"""
+    from quality import quality_block,quality_candidate
+    from datetime import datetime
+    latest=Path(dataDir)/'quality-all-latest.json'
+    rows=json.loads(latest.read_text(encoding='utf-8'))
+    fresh={str(x.get('order_id')) for r in results for x in (r.get('all_returns') or [])}
+    by_shop={}
+    for x in rows:
+        if str(x.get('order_id')) in fresh or x.get('appealable') is not False: continue
+        if x.get('block_reason')!='售后说明与所选品质原因一致，不属主观': continue
+        desc=str(x.get('description') or '')
+        if quality_block(desc): continue
+        try:ts=int(datetime.fromisoformat(x['apply_time']).timestamp()) if x.get('apply_time') else 0
+        except Exception:ts=0
+        x['appealable']=True;x['block_reason']=''
+        sid=str(x.get('shop_id') or '')
+        r=by_shop.setdefault(sid,{'shop_id':x.get('shop_id'),'name':x.get('shop') or '','status':'ok','candidates':[],'all_returns':[]})
+        r['candidates'].append(quality_candidate(x['order_id'],x.get('after_sale_id') or '',x.get('reason') or '',desc,x.get('has_media'),ts,
+                                                 x.get('flyge_url') or '',x.get('product_name') or '',x.get('product_id') or ''))
+        r['all_returns'].append({k:v for k,v in x.items() if k not in ('shop','shop_id')})
+    return list(by_shop.values())
+
 def main(request):
     if request.get('action')=='health':return {'frozen':bool(getattr(sys,'frozen',False)),'python':sys.version.split()[0]}
     if request.get('action')=='fetch':
@@ -91,6 +114,14 @@ def main(request):
             pass
         with ThreadPoolExecutor(max_workers=3) as pool:results=collect(pool,lambda item:fetch_quality_returns(item),request['shops'])
         http=time.perf_counter()-started
+        try:
+            _byid={str(r.get('shop_id') or ''):r for r in results}
+            for _extra in rejudge_quality_pool(request['dataDir'],results):
+                _r=_byid.get(str(_extra['shop_id'] or ''))
+                if _r is None or _r.get('status')!='ok':continue
+                _r.setdefault('candidates',[]).extend(_extra['candidates'])
+                _r.setdefault('all_returns',[]).extend(_extra['all_returns'])
+        except Exception:pass
         worklist,count=finalize_worklist(results,request['dataDir'],'quality_returns')
         # 额外落一份「全量品退池」（含被筛掉的：说明与原因一致 / 含真实品质词 / 详情失败）
         try:

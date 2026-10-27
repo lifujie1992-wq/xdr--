@@ -31,9 +31,19 @@ SUBJECTIVE_KEYWORDS = [
     '尺寸拍错', '颜色拍错', '拍错了', '买错了', '不想要了', '不想要啦',
 ]
 
+# 2026-10-27 补：明确是买家自己的原因（实单 6930706688307396080「尺码没选对」被漏判）。
+# 「不要了」常跟在抱怨后面（货不对板不要了），所以只在说明里没有描述/品质抱怨时才算主观。
+EXTRA_SUBJECTIVE_KEYWORDS = ['不要了', '没选对', '选的不对', '买大了', '买小了', '拍大了', '拍小了', '和想象中不一样', '和想象的不一样']
+EXTRA_COMPLAINT_WORDS = [
+    '色差', '货不对板', '货不对版', '毛病', '臭', '薄', '说的不一样', '区别太大', '相差太大', '差别太大',
+    '视频中不', '视频不一样', '图片不一样', '质量', '不符', '不标准', '描述',
+]
+
 def is_subjective_reason(text):
     t = str(text or '')
-    return any(k in t for k in SUBJECTIVE_KEYWORDS)
+    if any(k in t for k in SUBJECTIVE_KEYWORDS):
+        return True
+    return any(k in t for k in EXTRA_SUBJECTIVE_KEYWORDS) and not any(k in t for k in EXTRA_COMPLAINT_WORDS)
 
 # 说明里出现这些强品质词时，说明原因与描述一致，不属于“与事实不符”，不纳入
 STRONG_QUALITY_WORDS = [
@@ -52,6 +62,33 @@ QUALITY_REVIEW_KEYWORDS = QUALITY_KEYWORDS + ['尺码不符', '厚度', '透', '
 # 中差评里"情绪化/无实质"表述（仅在未出现具体品质词时使用）
 VAGUE_REVIEW_WORDS = ['差评', '不推荐', '不好', '一般', '失望', '垃圾', '后悔', '不值得', '不想要', '不喜欢',
                       '无语', '服了', '呵呵', '唉', '退货', '难说', '凑合', '还行']
+
+def quality_block(desc):
+    """品质原因的售后单：返回不可申诉的原因，空串表示可申诉。"""
+    if not is_subjective_reason(desc):
+        return '售后说明与所选品质原因一致，不属主观' if str(desc or '').strip() else '买家未填写售后说明'
+    if has_strong_quality(desc):
+        return '说明里含具体品质问题（%s）' % str(desc)[:14]  # 原因与描述一致，举报不过
+    return ''
+
+def quality_candidate(order_id, after_sale_id, reason, desc, has_media, apply_time, flyge_url, product_name, product_id):
+    r_short = reason.replace('（商品品质原因）', '').replace('(商品品质原因)', '')
+    report_desc = ('售后原因选“%s”，但售后说明写的是“%s”，属个人主观/非品质原因，与所选品质退货原因不符，恳请核实剔除品退率考核。' % (r_short, desc))[:100]
+    return {
+        'order_id': order_id,
+        'after_sale_id': after_sale_id,
+        'reason': reason,
+        'description': desc,
+        'has_media': bool(has_media),
+        'apply_time': datetime.fromtimestamp(apply_time, ZoneInfo('Asia/Shanghai')).isoformat() if apply_time else '',
+        'apply_date': _ymd(apply_time),
+        'flyge_url': flyge_url,
+        'evidence': '①售后单详情截图  ②飞鸽完整聊天记录截图  ③订单详情截图',
+        'report_desc': report_desc,
+        'product_name': product_name,
+        'product_id': product_id,
+        'appeal_text': quality_appeal(order_id, reason, desc, apply_time),
+    }
 
 def period(days=30):
     now = datetime.now(ZoneInfo('Asia/Shanghai'))
@@ -330,11 +367,7 @@ def fetch_quality_returns(item, span=None, max_pages=60, page_size=50, max_detai
                     continue  # 详情获取失败，不贸然判定
                 if not is_quality_reason(reason):
                     continue
-                block = ''
-                if not is_subjective_reason(desc):
-                    block = '售后说明与所选品质原因一致，不属主观' if str(desc or '').strip() else '买家未填写售后说明'
-                elif has_strong_quality(desc):
-                    block = '说明里含具体品质问题（%s）' % str(desc)[:14]  # 原因与描述一致，举报不过
+                block = quality_block(desc)
                 pool_rows.append({
                     'order_id': o['order_id'], 'after_sale_id': o['after_sale_id'],
                     'reason': reason, 'description': desc, 'has_media': bool(has_ev),
@@ -345,23 +378,8 @@ def fetch_quality_returns(item, span=None, max_pages=60, page_size=50, max_detai
                 })
                 if block:
                     continue
-                r_short = reason.replace('（商品品质原因）', '').replace('(商品品质原因)', '')
-                report_desc = ('售后原因选“%s”，但售后说明写的是“%s”，属个人主观/非品质原因，与所选品质退货原因不符，恳请核实剔除品退率考核。' % (r_short, desc))[:100]
-                candidates.append({
-                    'order_id': o['order_id'],
-                    'after_sale_id': o['after_sale_id'],
-                    'reason': reason,
-                    'description': desc,
-                    'has_media': bool(has_ev),
-                    'apply_time': datetime.fromtimestamp(o['apply_time'], ZoneInfo('Asia/Shanghai')).isoformat() if o['apply_time'] else '',
-                    'apply_date': _ymd(o['apply_time']),
-                    'flyge_url': contact,
-                    'evidence': '①售后单详情截图  ②飞鸽完整聊天记录截图  ③订单详情截图',
-                    'report_desc': report_desc,
-                    'product_name': pname or o.get('product_name') or '',
-                    'product_id': pid or o.get('product_id') or '',
-                    'appeal_text': quality_appeal(o['order_id'], reason, desc, o['apply_time']),
-                })
+                candidates.append(quality_candidate(o['order_id'], o['after_sale_id'], reason, desc, has_ev, o['apply_time'], contact,
+                                                    pname or o.get('product_name') or '', pid or o.get('product_id') or ''))
         return {'shop_id': item['id'], 'name': item['name'], 'status': 'ok',
                 'quality_count': quality_total, 'checked_count': len(picked), 'candidate_count': len(candidates),
                 'appealable_count': sum(1 for x in pool_rows if x.get('appealable')),

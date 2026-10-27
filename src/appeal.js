@@ -660,8 +660,18 @@ function saveChat(rec){ try{ let m={}; try{ m=JSON.parse(fs.readFileSync(chatFil
 function loadQueue(){ try{ const q=JSON.parse(fs.readFileSync(queueFile(),'utf8')); return (q&&q.items)?q:{items:{}}; }catch(e){ return {items:{}}; } }
 function saveQueue(q){ try{ fs.writeFileSync(queueFile(), JSON.stringify(q,null,2)); fs.chmodSync(queueFile(),0o600); }catch(e){} }
 function queueMarkGone(order,why){ const q=loadQueue(); if(q.items[order]&&q.items[order].status!=='submitted'){ q.items[order].status='gone'; q.items[order].goneReason=why; saveQueue(q); } }
+// 平台判「不可举报/无需举报」不是终态（如售后未完结时判不可举报，完结后又可举报），只跳过一段时间，到期重新预检
+const SKIP_RECHECK_DAYS=3;
+const isRecheckSkip=rs=>/不可举报|无需举报/.test(String(rs||''));
+function skipActive(rec){
+  const rs=String((rec||{}).reason||'');
+  if(/已举报过/.test(rs)) return true;
+  if(!isRecheckSkip(rs)) return false;
+  const at=Date.parse((rec||{}).at||'');
+  return !(at>0) || Date.now()-at < SKIP_RECHECK_DAYS*86400000;
+}
 function saveSkip(order,reason,shop){
-  try{ const m=loadSkips(); if(!m[order]){ m[order]={reason:reason,shop:shop||'',at:new Date().toISOString()}; fs.writeFileSync(skipFile(),JSON.stringify(m,null,2)); fs.chmodSync(skipFile(),0o600); } }catch(e){}
+  try{ const m=loadSkips(); if(!m[order] || isRecheckSkip(m[order].reason)){ m[order]={reason:reason,shop:shop||'',at:new Date().toISOString()}; fs.writeFileSync(skipFile(),JSON.stringify(m,null,2)); fs.chmodSync(skipFile(),0o600); } }catch(e){}
 }
 function runPage(wc, fn, ...args){
   // 带超时：页面挂死时跳过，避免整场跑批卡住
@@ -695,7 +705,7 @@ function createAppeal({store, jobs, app}){
     try{ const rf=readJson(path.join(reportsDir(),'results.json')); if(rf&&rf.map) for(const oid of Object.keys(rf.map)) m.add(oid); }catch(e){}
     // 2) 跳过类（不可举报/无需举报）；recheck=true 时不排除，重新去平台核一遍
     // 只有平台铁定的终态才排除；「飞鸽未加载 / 无会话权限 / 需人工介入 / 待重试」这类临时失败要允许重跑
-    if(!recheck){ try{ const sk=loadSkips(); for(const o in sk){ const rs=String((sk[o]||{}).reason||''); if(/不可举报|无需举报|已举报过/.test(rs)) m.add(o); } }catch(e){}
+    if(!recheck){ try{ const sk=loadSkips(); for(const o in sk){ if(skipActive(sk[o])) m.add(o); } }catch(e){}
       // 平台一个订单只能举报一次：只要历史日志里出现过"已提交"，就永久跳过
       try{ for(const f of fs.readdirSync(reportsDir()).filter(x=>x.endsWith('.json')&&x!=='results.json'&&x!=='skipped.json')){ const rep=readJson(path.join(reportsDir(),f)); for(const e of (rep&&rep.log)||[]){ if(!e.order||e.result!=='已提交') continue; const dd=e.detail||{};
           const real = (dd.applyResp&&dd.applyResp.data&&dd.applyResp.data.id) || dd.reportId;   // 拿不到举报ID的视为未成功
