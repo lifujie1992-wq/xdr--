@@ -2,6 +2,7 @@
 const {session, BrowserWindow} = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
+const LEARN = require('./appeal-learn');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let USER_DATA = '';
@@ -565,7 +566,7 @@ async function llmClassifyReview(rank, content, chat, hasImg, opts){
       const r=await fetch(cfg.base_url+'/chat/completions',{ method:'POST', signal:ctrl.signal,
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfg.key},
         body: JSON.stringify({ model:cfg.model, max_tokens:8000,
-          messages:[{role:'system',content:LLM_SYS(opts)},{role:'user',content:'星级：'+(rank||'中评')+'\n评价内容：'+(String(content||'').trim()||'（空）')+'\n飞鸽聊天记录：'+(chat&&chat.length?chat.join(' | ').slice(0,800):'（买家全程没有任何发言）')+'\n买家是否发过图片/视频：'+(hasImg?'是':'否')}] }) });
+          messages:[{role:'system',content:LLM_SYS(opts).replace('严格只输出 JSON', (LEARN.reviewCasesText(CASES).trim()?LEARN.reviewCasesText(CASES).trim()+'\n\n':'')+'严格只输出 JSON')},{role:'user',content:'星级：'+(rank||'中评')+'\n评价内容：'+(String(content||'').trim()||'（空）')+'\n飞鸽聊天记录：'+(chat&&chat.length?chat.join(' | ').slice(0,800):'（买家全程没有任何发言）')+'\n买家是否发过图片/视频：'+(hasImg?'是':'否')}] }) });
       clearTimeout(timer);
       const j=await r.json();
       let txt=((j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||'').trim();
@@ -603,6 +604,15 @@ function pickReviewReason(content){
 // ===== 举报文案：按实际情况生成 =====
 const BAD_WORDS = /测试|抓包|请忽略|test|debug|demo|样例|试验/i;
 function sanitizeDesc(t){ return String(t||'').replace(BAD_WORDS,'').replace(/\s{2,}/g,' ').trim().slice(0,100); }
+// 学习经验：平台审核过的成功/失败案例（run() 开头从 appeal-web 数据现建）
+let CASES = null;
+const LEARN_MIN_DESC_LEN = 4;   // 售后说明太短（如「不合适」）历史上成败各半，一律交人工
+const LEARN_AUTO_CONF = 0.85;   // 和成功案例高度相似才自动提交，否则进人工核对
+async function llmJudgeQuality(o){
+  const cfg=llmCfg(); if(!cfg||!cfg.key) return null;
+  try{ return LEARN.normalizeJudge(await LEARN.chatJSON(cfg, LEARN.qualityJudgePrompt(CASES), LEARN.qualityJudgeUser(o))); }
+  catch(e){ return {verdict:'uncertain',confidence:0,similar:'',why:'大模型调用失败:'+String(e.message||e).slice(0,40),desc:''}; }
+}
 function buildQualityDesc(o){
   const r=String(o.reason||'').replace('（商品品质原因）','').replace('(商品品质原因)','');
   const d=String(o.desc||'');
@@ -665,7 +675,7 @@ const SKIP_RECHECK_DAYS=3;
 const isRecheckSkip=rs=>/不可举报|无需举报/.test(String(rs||''));
 function skipActive(rec){
   const rs=String((rec||{}).reason||'');
-  if(/已举报过/.test(rs)) return true;
+  if(/已举报过|买家已表明品质问题/.test(rs)) return true;
   if(!isRecheckSkip(rs)) return false;
   const at=Date.parse((rec||{}).at||'');
   return !(at>0) || Date.now()-at < SKIP_RECHECK_DAYS*86400000;
@@ -727,6 +737,27 @@ function createAppeal({store, jobs, app}){
     return [...map.values()];
   }
 
+  // 学习经验初筛：关键词判「说明与品质原因一致」的品退，再让大模型对照成功案例只看说明筛一轮，像成功案例的补进候选
+  const SCREEN_MAX=300;   // 每轮最多新筛多少单（25 单一批）
+  const screenFile=()=>path.join(reportsDir(),'llm-quality-screen.json');
+  async function learnScreenPool(done, minDate, have){
+    const cfg=llmCfg(); if(!cfg||!cfg.key||!CASES||!CASES.quality.ok.length) return [];
+    const pool=readJson(path.join(dataDir(),'quality-all-latest.json'))||[];
+    const cache=readJson(screenFile())||{};
+    const rows=pool.filter(r=>r&&r.order_id&&r.appealable===false&&r.block_reason==='售后说明与所选品质原因一致，不属主观'
+      &&String(r.description||'').trim()&&String(r.apply_date||'')>=minDate&&!done.has(r.order_id)&&!have.has(r.order_id));
+    const todo=rows.filter(r=>!cache[r.order_id]).slice(0,SCREEN_MAX);
+    const sys=LEARN.qualityScreenPrompt(CASES);
+    for(let i=0;i<todo.length;i+=25){
+      const b=todo.slice(i,i+25);
+      let o=null; try{ o=await LEARN.chatJSON(cfg,sys,b.map((r,k)=>k+'. 原因「'+LEARN.shortReason(r.reason)+'」说明「'+String(r.description).trim().slice(0,80)+'」').join('\n'),{timeoutMs:60000}); }catch(e){ continue; }
+      const byI=new Map(((o&&o.items)||[]).map(x=>[Number(x.i),x.v]));
+      b.forEach((r,k)=>{ const v=byI.get(k); if(v) cache[r.order_id]={v,at:new Date().toISOString(),desc:String(r.description).slice(0,60)}; });
+    }
+    try{ fs.writeFileSync(screenFile(),JSON.stringify(cache)); fs.chmodSync(screenFile(),0o600); }catch(e){}
+    return rows.filter(r=>cache[r.order_id]&&cache[r.order_id].v==='subjective');
+  }
+
   async function screen(kinds,recheck){
     // 1) 触发增量筛查（只拉新增，更新 worklist 文件）
     for(const kind of kinds){
@@ -742,6 +773,9 @@ function createAppeal({store, jobs, app}){
       if(!kinds.includes(argName)) continue;
       const src = (prefix==='negative_reviews') ? unionAllReviews() : unionWorklist(prefix);
       for(const r of src){ const dd=r.apply_date||r.comment_date||''; if(dd && dd<minDate) continue; if(done.has(r.order_id)) continue; out.push({...r, kind}); }
+    }
+    if(kinds.includes('quality')){
+      try{ for(const r of await learnScreenPool(done, minDate, new Set(out.map(x=>x.order_id)))) out.push({...r, kind:'quality', via:'学习经验初筛'}); }catch(e){}
     }
     return out;
   }
@@ -879,7 +913,7 @@ function createAppeal({store, jobs, app}){
 
         // ② 判断（中差评：大模型综合内容+星级+聊天记录；品退：平台接口预检）
         const isRev = (c.kind==='review');
-        let code=null, cid='', status='', tried=[], revLLM={}, revContent='', revRank='';
+        let code=null, cid='', status='', tried=[], revLLM={}, revContent='', revRank='', qLearn=null;
         const LABELS={'report_reason_fake_negative_comment':'评价等级为差评内容为好评','report_reason_evaluate_product_other_shop':'评价内容非交易商品或内容无意义','report_reason_wrong_size':'消费者买错型号','report_reason_low_politics_guns':'评价内容中包含辱骂或不当词汇','report_reason_negative_comment_compensation':'利用中差评骗赔','report_reason_business_evil_compete':'同行恶意竞争'};
         if(isRev){
           const SUBS0=((ENUM&&ENUM['report_type_unusual_comment']&&ENUM['report_type_unusual_comment'].subs)||[]);
@@ -941,6 +975,14 @@ function createAppeal({store, jobs, app}){
           if(st==='不可举报'){ queueMarkGone(c.order_id,'不可举报'); saveSkip(c.order_id,'不可举报',shopName); log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'不可举报',detail:{tried:tried}}); continue; }
           if(!(pre && pre.code===0 && !pre.error)){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'预检失败',detail:{tried:tried}}); continue; }
           code=cd; status=st||'可举报';
+          // 学习经验判断：参照平台判成功/驳回的历史品退，结合售后说明 + 买家飞鸽发言
+          qLearn=await llmJudgeQuality({reason:c.reason,desc:c.description,buyerMsgs:f.buyer_msgs||[],buyerImgs:f.buyer_imgs||0});
+          if(qLearn) revLLM=qLearn;
+          if(qLearn && qLearn.verdict==='quality_claim' && qLearn.confidence>=0.6){
+            saveSkip(c.order_id,'买家已表明品质问题',shopName);
+            log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'买家已表明品质问题',detail:{llm:qLearn,desc:String(c.description||'').slice(0,60),msgs:f.buyer_count||0}});
+            continue;
+          }
         }
         // ③ 截图打包（全在窗口B，提前存盘；不碰窗口A）
         const dir=path.join(APPEAL_PACK_DIR(),_safe(shopName),_safe(c.order_id));
@@ -951,7 +993,7 @@ function createAppeal({store, jobs, app}){
 
         // ④ 接口提交（不再点页面）
         if(!submit){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'跳过',reason:'演练模式(未提交)',detail:{content:String(revContent||c.content||'').slice(0,60),label:(code&&code.label)||'',llm:revLLM,shots:shots.length,status:status}}); continue; }
-        const revDesc=sanitizeDesc(c.kind==='review'?buildReviewDesc({rank:revRank,content:revContent,msgCount:(f&&f.buyer_count)||0,imgCount:(f&&f.buyer_imgs)||0,sub:code&&code.sub}):buildQualityDesc({reason:c.reason,desc:c.description,msgCount:(f&&f.buyer_count)||0}));
+        const revDesc=sanitizeDesc(c.kind==='review'?buildReviewDesc({rank:revRank,content:revContent,msgCount:(f&&f.buyer_count)||0,imgCount:(f&&f.buyer_imgs)||0,sub:code&&code.sub}):((qLearn&&qLearn.desc)||buildQualityDesc({reason:c.reason,desc:c.description,msgCount:(f&&f.buyer_count)||0})));
         const gate={};
         // ④a- 上传飞鸽聊天截图作为凭证（预审与提交都用）
         let proofs={images:[],videos:[]};
@@ -997,7 +1039,9 @@ function createAppeal({store, jobs, app}){
         // 历史高通过率（该举报原因过去通过率 ≥70% 且样本 ≥20）→ 也直接提
         const _h=HIST[code.sub]||null;
         const histAuto=!!(AUTO_SUBMIT_BY_HISTORY && _h && _h.n>=HIST_MIN_N && _h.rate>=HIST_MIN_RATE && !(qit && qit.status==='rejected'));
-        const autoApprove=highPreAudit||histAuto;
+        // 学习经验高度相似（像平台判成功的历史品退）→ 按学到的写法直接提交；拿不准的照旧进人工核对
+        const learnAuto=!!(c.kind==='quality' && qLearn && qLearn.verdict==='appeal' && qLearn.confidence>=LEARN_AUTO_CONF && qLearn.desc && String(c.description||'').replace(/\s/g,'').length>=LEARN_MIN_DESC_LEN && !(qit && qit.status==='rejected'));
+        const autoApprove=highPreAudit||histAuto||learnAuto;
         if(reviewQueue && (c.kind==='review'||c.kind==='quality') && !autoApprove && (!qit || (qit.status!=='confirmed' && qit.status!=='submitted'))){
           const q=loadQueue();
           q.items[c.order_id]=Object.assign({}, qit||{}, {
@@ -1047,7 +1091,7 @@ function createAppeal({store, jobs, app}){
           try{ const has=await orderHasReport(rB,c.order_id); if(has){ r.alreadyReported=has; saveSkip(c.order_id,'已举报过',shopName); } }catch(e){}
         }
         if(!r.submitted && (r.why==='不可举报'||r.why==='无需举报')) saveSkip(c.order_id,r.why,shopName);
-        log({shop:shopName,order:c.order_id,kind:c.kind,result: r.submitted?'已提交':(r.skipped?'跳过':'未提交'),reason: r.submitted?'':(r.skipped||r.reason||r.error||''),via: highPreAudit?'预审高通过率自动提交':(histAuto?('历史高通过率自动提交 '+Math.round((_h&&_h.rate||0)*100)+'%(n='+((_h&&_h.n)||0)+')'):undefined),detail:r});
+        log({shop:shopName,order:c.order_id,kind:c.kind,result: r.submitted?'已提交':(r.skipped?'跳过':'未提交'),reason: r.submitted?'':(r.skipped||r.reason||r.error||''),via: highPreAudit?'预审高通过率自动提交':learnAuto?('学习经验自动提交（像成功案例：'+String(qLearn.similar||'').slice(0,20)+'）'):(histAuto?('历史高通过率自动提交 '+Math.round((_h&&_h.rate||0)*100)+'%(n='+((_h&&_h.n)||0)+')'):undefined),detail:r});
        }catch(err){ log({shop:shopName,order:c.order_id,kind:c.kind,result:'未提交',reason:'异常:'+String(err&&err.message||err)}); }
       }
     } finally { if(!wA.isDestroyed()) wA.destroy(); if(!wB.isDestroyed()) wB.destroy(); }
@@ -1083,6 +1127,8 @@ function createAppeal({store, jobs, app}){
     persist();
   }
 
+  let casesSource=null;   // appeal-web 的 buildData，用来现建学习案例
+  const setCasesSource=fn=>{ casesSource=fn; };
   let HIST={};   // 各举报原因的历史通过率（来自 results.json，run() 开头刷新）
   function computeHist(){
     try{ const p=path.join(baseDir(),'appeal-reports','results.json'); const rf=JSON.parse(fs.readFileSync(p,'utf8'))||{}; return buildHistFromResults(rf.map||{}); }
@@ -1092,6 +1138,8 @@ function createAppeal({store, jobs, app}){
     if(state.running) return {error:'已有自动申诉任务在运行', id:state.id};
     const _skip=!!skipSync;
     try{ HIST=computeHist(); }catch(e){ HIST={}; }
+    try{ CASES=casesSource?LEARN.buildCases(((casesSource()||{}).items)||[]):null;
+      if(CASES){ const f=path.join(reportsDir(),'appeal-cases.json'); fs.writeFileSync(f,JSON.stringify(CASES,null,1)); fs.chmodSync(f,0o600); } }catch(e){ CASES=null; }
     state = {id:String(Date.now()), running:true, log:[], startedAt:new Date().toISOString(), finishedAt:null, summary:null, reportFile:null, skipSync:_skip, reviewQueue:!!reviewQueue};
     const log = e => { state.log.push({at:new Date().toISOString(), ...e}); persist(); };
     flow(kinds, submit, shopIds, maxPerShop, recheck, log, !!reviewQueue, autoSubmitHighPreAudit!==false, !!confirmedOnly);   // 后台执行，不阻塞
@@ -1129,7 +1177,7 @@ function createAppeal({store, jobs, app}){
   }
 
   const snapshot = () => JSON.parse(JSON.stringify(state));
-  return {run, snapshot, syncResults};
+  return {run, snapshot, syncResults, setCasesSource};
 }
 
 module.exports = {createAppeal};

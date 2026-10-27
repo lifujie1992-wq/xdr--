@@ -595,8 +595,8 @@ function drawList(){
   lw.querySelectorAll('button.qa').forEach(b=>b.onclick=()=>queueAct(b.dataset.oid,b.dataset.act));
   lw.querySelectorAll('input.qfile').forEach(inp=>inp.onchange=()=>onPickFiles(inp.dataset.oid,inp));
   lw.querySelectorAll('select[id^="qsub_"]').forEach(sel=>{ const oid=sel.id.slice(5), a=lw.querySelector('[data-tpl="'+oid+'"]'), x=(QDATA.items||[]).find(i=>i.order_id===oid); if(a&&x) a.style.display=qTpl(x,sel.value)?'':'none'; });
-  lw.querySelectorAll('[data-tpl]').forEach(a=>a.onclick=()=>{ const oid=a.dataset.tpl, x=(QDATA.items||[]).find(i=>i.order_id===oid), sel=$('qsub_'+oid), ta=$('qta_'+oid); const sub=sel?sel.value:(x&&x.sub), t=qTpl(x,sub); if(!t){ alert('当前选中的举报理由还没有预置文案，请手动填写'); return; } if(!qTplOk(x,sub) && !confirm('这条评价内容看着不像「好评内容」，确定要套用这段文案吗？\\n\\n内容：'+((x&&x.content)||''))) return; if(ta) ta.value=t; });
-  lw.querySelectorAll('[data-ai]').forEach(a=>a.onclick=()=>{ const x=(QDATA.items||[]).find(i=>i.order_id===a.dataset.ai), ta=$('qta_'+a.dataset.ai); if(ta&&x) ta.value=x.desc||''; });
+  lw.querySelectorAll('[data-tpl]').forEach(a=>a.onclick=()=>{ const oid=a.dataset.tpl, x=(QDATA.items||[]).find(i=>i.order_id===oid), sel=$('qsub_'+oid), ta=$('qta_'+oid); const sub=sel?sel.value:(x&&x.sub), t=qTpl(x,sub); if(!t){ alert('当前选中的举报理由还没有预置文案，请手动填写'); return; } if(!qTplOk(x,sub) && !confirm('这条评价内容看着不像「好评内容」，确定要套用这段文案吗？\\n\\n内容：'+((x&&x.content)||''))) return; if(ta) ta.value=t; ta.dispatchEvent(new Event('input',{bubbles:true})); });
+  lw.querySelectorAll('[data-ai]').forEach(a=>a.onclick=()=>{ const x=(QDATA.items||[]).find(i=>i.order_id===a.dataset.ai), ta=$('qta_'+a.dataset.ai); if(ta&&x) { ta.value=x.desc||''; ta.dispatchEvent(new Event('input',{bubbles:true})); }; });
   view.forEach(x=>{ if(x.__q && qStatus(x.__q)==='待核对'){ if(QIMG[x.order_id]===undefined){ QIMG[x.order_id]=(x.__q.images||[]).map(i=>Object.assign({},i,{status:'done'})); } renderAtt(x.order_id); } });
   $('pager').innerHTML= size>0 && pages>1
     ? '<button data-pg="1">首页</button><button data-pg="'+(PAGE-1)+'">上一页</button><span class="hint">第 '+PAGE+' / '+pages+' 页 · 每页 '+size+' 条</span><button data-pg="'+(PAGE+1)+'">下一页</button><button data-pg="'+pages+'">末页</button>'
@@ -808,6 +808,10 @@ function qTplOk(x,sub){
 }
 // 待核对 + 有预置文案 + 内容确实像好评 → 默认就用预置文案；其余情况沿用本地推来的 AI 原稿
 const qDesc=(x,sub)=>{ const t=qTpl(x,sub); return (qStatus(x)==='待核对'&&t&&qTplOk(x,sub))?t:(x.desc||''); };
+// 人工正在改的稿按单号暂存：30 秒自动刷新重绘时不能被服务端原稿覆盖；确认/不举报/撤回后清掉
+const QDRAFT={};
+document.addEventListener('input',ev=>{ const t=ev.target; if(t&&t.id&&t.id.indexOf('qta_')===0){ const o=t.id.slice(4); (QDRAFT[o]=QDRAFT[o]||{}).desc=t.value; } });
+document.addEventListener('change',ev=>{ const t=ev.target; if(t&&t.id&&t.id.indexOf('qsub_')===0){ const o=t.id.slice(5); (QDRAFT[o]=QDRAFT[o]||{}).sub=t.value; } });
 let QF={status:'待核对',shop:'',q:''}, QDATA={items:[]};
 function qFiltered(){
   return QDATA.items.filter(x=>{
@@ -940,7 +944,7 @@ async function onPickFiles(oid,input){
 function qEditBlock(x){
   const rec=(x.recommend&&x.recommend.is_match)?('<span class="tag">平台推荐:'+esc(x.recommend.sub_scene_type_name||'')+'</span>'):'';
   const pa=x.preAudit?('<span class="tag" style="background:'+(x.preAudit.level==='low'?'#fdeceb;color:#c0392b':'#e9f7f0;color:#1f7a55')+'">预审:'+(x.preAudit.level||'?')+'</span>'):'';
-  const sel='<select id="qsub_'+x.order_id+'" style="max-width:230px">'+QREASONS.map(r=>'<option value="'+r[0]+'"'+(r[0]===x.sub?' selected':'')+'>'+esc(r[1])+'</option>').join('')+'</select>';
+  const sel='<select id="qsub_'+x.order_id+'" style="max-width:230px">'+QREASONS.map(r=>'<option value="'+r[0]+'"'+(r[0]===((QDRAFT[x.order_id]||{}).sub||x.sub)?' selected':'')+'>'+esc(r[1])+'</option>').join('')+'</select>';
   const st=qStatus(x);
   const act = st==='待核对'
     ? '<button class="primary qa" data-oid="'+x.order_id+'" data-act="confirm">✅ 确认提交</button> <button class="qa" data-oid="'+x.order_id+'" data-act="reject">🚫 不举报</button>'
@@ -954,7 +958,7 @@ function qEditBlock(x){
     : ('<div class="qhint" title="'+esc(x.content||'')+'">评价：'+esc(x.content||'—')+((rec||pa)?(' '+rec+pa):'')+'</div>');
   return '<div class="qinline">'+head
     +(x.execPending?'<div class="qhint2">⏳ 云端已确认，等本地执行</div>':'')
-    +'<textarea id="qta_'+x.order_id+'" rows="2">'+esc(qDesc(x,x.sub))+'</textarea>'
+    +'<textarea id="qta_'+x.order_id+'" rows="2">'+esc((QDRAFT[x.order_id]&&QDRAFT[x.order_id].desc!=null)?QDRAFT[x.order_id].desc:qDesc(x,x.sub))+'</textarea>'
     +'<div class="qrow">'+sel+tplBar+'</div>'
     +'<div class="qrow">'+act+'</div>'
     +attBlock(x)
@@ -991,11 +995,11 @@ function drawQueue(){
     const sub=sel?sel.value:(x&&x.sub), t=qTpl(x,sub);
     if(!t){ alert('当前选中的举报理由还没有预置文案，请手动填写'); return; }
     if(!qTplOk(x,sub) && !confirm('这条评价内容看着不像「好评内容」，确定要套用这段文案吗？\\n\\n内容：'+((x&&x.content)||''))) return;
-    if(ta) ta.value=t;
+    if(ta) ta.value=t; ta.dispatchEvent(new Event('input',{bubbles:true}));
   });
   $('queuewrap').querySelectorAll('[data-ai]').forEach(a=>a.onclick=()=>{
     const x=(QDATA.items||[]).find(i=>i.order_id===a.dataset.ai), ta=$('qta_'+a.dataset.ai);
-    if(ta&&x) ta.value=x.desc||'';
+    if(ta&&x) { ta.value=x.desc||''; ta.dispatchEvent(new Event('input',{bubbles:true})); };
   });
   rows.forEach(x=>{ if(qStatus(x)==='待核对'){ renderAtt(x.order_id); loadUploads(x.order_id); } });
 }
@@ -1018,7 +1022,7 @@ async function queueAct(oid,action){
   let j={};
   try{ j=await fetch('/appeal/api/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json()); }catch(e){ j={ok:false,error:String((e&&e.message)||e)}; }
   if(!j.ok){ alert('提交失败：'+(j.error||'网络错误')); return; }
-  delete QIMG[oid];
+  delete QIMG[oid]; delete QDRAFT[oid];
   // 独立核对区（queuewrap）已并入工单列表，可能不存在；提交成功后要重画工单列表，否则按钮不变、看起来像没提交
   const qw=$('queuewrap');
   if(qw && document.activeElement && qw.contains(document.activeElement) && document.activeElement.blur) document.activeElement.blur();
@@ -1410,6 +1414,7 @@ function createAppealWeb({app, appeal}){
   }
   function url(){ return 'http://127.0.0.1:'+port+'/' }
   function close(){ try{ server&&server.close() }catch(e){} server=null }
+  try{ appeal && appeal.setCasesSource && appeal.setCasesSource(buildData); }catch(e){}   // 申诉跑批前用平台审核结果现建学习案例
   return {start,url,close,data:buildData,stats:buildStats};
 }
 module.exports={createAppealWeb};
