@@ -483,7 +483,21 @@ async function pageSyncReports(cfg){
       if(ac&&ac.sku_order_id) orders.push(String(ac.sku_order_id));
       let ex={}; try{ ex=JSON.parse(d.extra||'{}')||{}; }catch(e){}
       if(ex.order_id) orders.push(String(ex.order_id));
-      out.push({id:it.id,scene:it.scene_type_name,sub:it.sub_scene_type_name,auditStatus:it.audit_status,auditTime:it.audit_time,created:it.create_time,orders:[...new Set(orders)],resultMsg:d.result_msg||''});
+      // 提交内容（申诉说明 / 凭证）：详情接口里字段名不固定，按「像说明文字的字符串字段」稳妥抓取，限长，不要代码类取值
+      const texts=[];
+      const grab=(obj)=>{ for(const k of Object.keys(obj||{})){ const v=obj[k]; if(typeof v!=='string') continue; const t=v.trim();
+        if(t.length<4||!/desc|content|reason|remark|explain|appeal|text|statement/i.test(k)||/result|msg|message|url|time|status|name|code|type|extra/i.test(k)||/^[a-z0-9_.:-]+$/i.test(t)) continue;
+        texts.push([k,t.slice(0,400)]); } };
+      grab(d); grab(ex); grab(it);
+      texts.sort((a,b)=>b[1].length-a[1].length);
+      let proofCount=0;
+      const countProofs=(obj)=>{ for(const k of Object.keys(obj||{})){ const v=obj[k]; if(!/proof|image|img|attach|evidence|material|pic/i.test(k)) continue;
+        if(Array.isArray(v)){ for(const e of v){ if(e&&typeof e==='object'){ const u=e.imageUrls||e.urls||e.images; proofCount+=Array.isArray(u)?u.length:1; } else if(e) proofCount+=1; } } } };
+      countProofs(d); countProofs(ex);
+      const row={id:it.id,scene:it.scene_type_name,sub:it.sub_scene_type_name,auditStatus:it.audit_status,auditTime:it.audit_time,created:it.create_time,orders:[...new Set(orders)],resultMsg:d.result_msg||'',
+        submittedDesc:texts.length?texts[0][1]:'',submittedFields:texts.slice(0,4).map(x=>x[0]+'='+x[1].slice(0,80)),proofCount:Math.min(proofCount,99)};
+      if(!out.length) row.detailKeys=Object.keys(d).slice(0,60);    // 只记字段名，用于确认平台详情里到底有哪些字段
+      out.push(row);
     }
     if(stop) break;
   }
@@ -1152,7 +1166,7 @@ function createAppeal({store, jobs, app}){
 
   async function syncResults({shopIds=null, days=30, pages=12}={}){
     const shops=store.items.filter(s=>s.platform==='抖店'&&(!shopIds||shopIds.includes(s.id)));
-    const map={}; let shopsOk=0;
+    const map={}; let shopsOk=0; let detailKeys=null;
     for(const shop of shops){
       const ses=session.fromPartition('persist:shop-'+shop.id);
       const w=new BrowserWindow({show:false,width:1024,height:800,webPreferences:{...secure,session:ses,backgroundThrottling:false}});
@@ -1161,17 +1175,19 @@ function createAppeal({store, jobs, app}){
         await sleep(4000);
         const arr=JSON.parse(await runPage(w.webContents,pageSyncReports,{days,pages})||'[]');
         shopsOk++;
-        for(const r of arr){ for(const oid of (r.orders||[])) if(oid) map[oid]={reportId:r.id,auditStatus:r.auditStatus,resultMsg:r.resultMsg,auditTime:r.auditTime,scene:r.scene,sub:r.sub,created:r.created,shop:shop.name}; }
+        for(const r of arr){ if(r.detailKeys&&!detailKeys) detailKeys=r.detailKeys; for(const oid of (r.orders||[])) if(oid) map[oid]={reportId:r.id,auditStatus:r.auditStatus,resultMsg:r.resultMsg,auditTime:r.auditTime,scene:r.scene,sub:r.sub,created:r.created,shop:shop.name,submittedDesc:r.submittedDesc||'',submittedFields:r.submittedFields||[],proofCount:r.proofCount||0}; }
       }catch(e){}
       finally{ if(!w.isDestroyed()) w.destroy(); }
     }
     try{
       const dir=path.join(app.getPath('userData'),'appeal-reports'); fs.mkdirSync(dir,{recursive:true});
       const f=path.join(dir,'results.json');
-      let prev={}; try{ prev=JSON.parse(fs.readFileSync(f,'utf8')).map||{}; }catch(e){}
+      let prev={}, prevKeys=null; try{ const pj=JSON.parse(fs.readFileSync(f,'utf8')); prev=pj.map||{}; prevKeys=pj.detailKeys||null; }catch(e){}
       const merged={...prev,...map};
+      // 这次详情没取到提交内容时，保留之前已经取到的，别被空值覆盖
+      for(const oid of Object.keys(map)){ const old=prev[oid]; if(old&&old.submittedDesc&&!map[oid].submittedDesc){ merged[oid].submittedDesc=old.submittedDesc; merged[oid].submittedFields=old.submittedFields||[]; if(!map[oid].proofCount) merged[oid].proofCount=old.proofCount||0; } }
       const scenes={}; for(const v of Object.values(merged)){ const k=v.scene||'?'; scenes[k]=(scenes[k]||0)+1; }
-      fs.writeFileSync(f, JSON.stringify({updatedAt:new Date().toISOString(),shopsOk,count:Object.keys(merged).length,thisRun:Object.keys(map).length,scenes,map:merged},null,2)); fs.chmodSync(f,0o600);
+      fs.writeFileSync(f, JSON.stringify({updatedAt:new Date().toISOString(),shopsOk,count:Object.keys(merged).length,thisRun:Object.keys(map).length,scenes,detailKeys:detailKeys||(prevKeys||null),map:merged},null,2)); fs.chmodSync(f,0o600);
       return {file:f, shopsOk, count:Object.keys(merged).length, thisRun:Object.keys(map).length, scenes};
     }catch(e){ return {error:String(e.message||e)} }
   }

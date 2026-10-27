@@ -1238,7 +1238,7 @@ function createAppealWeb({app, appeal}){
           has_media:(label==='品退')?((r.has_media===true)?1:((r.has_media===false)?0:null)):null,
           chat_buyer:(chatMap[r.order_id]||{}).buyer, chat_total:(chatMap[r.order_id]||{}).total,
           chat_imgs:(chatMap[r.order_id]||{}).imgs, chat_agents:(chatMap[r.order_id]||{}).agents||'',
-          report_reason:_reportReason, appeal_desc:String(_rb.report_desc||r.report_desc||''),
+          report_reason:_reportReason, appeal_desc:String(_rb.report_desc||(_sub&&_sub.detail&&_sub.detail.desc)||(results[r.order_id]&&results[r.order_id].submittedDesc)||r.report_desc||''), proof_count:Number((results[r.order_id]&&results[r.order_id].proofCount)||0),
           feedback_date:dd||'', collected_at:collectedAt[r.order_id]||'', operated_at:(e&&e.at)||'',
           submitted_at:((lastSub[r.order_id]&&lastSub[r.order_id].at)||''),
           appealable:(label==='品退')?(r.appealable===false?0:(r.appealable===true?1:(r.report_desc?1:null))):null,

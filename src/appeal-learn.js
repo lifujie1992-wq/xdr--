@@ -23,7 +23,7 @@ function buildCases(items, {qOk = 40, qBad = 30, rOk = 20, rBad = 20} = {}) {
       const key = 'q' + ok + d;
       if (seen.has(key)) continue; seen.add(key);
       (ok ? Q_OK : Q_BAD).push({order_id: x.order_id, reason: shortReason(x.aftersale || x.reason), desc: d.slice(0, 60),
-        appeal: ok ? String(x.appeal_desc || '').slice(0, 120) : '', fail: ok ? '' : cleanMsg(x.auditMsg)});
+        appeal: ok ? String(x.appeal_desc || '').slice(0, 160) : '', by: String(x.submitter || '').indexOf('AI') === 0 ? 'AI' : '人工', fail: ok ? '' : cleanMsg(x.auditMsg)});
     } else if (x.kind === '中差评') {
       const c = String(x.content || '').trim();
       if (!c) continue;
@@ -45,7 +45,10 @@ function qualityCasesText(cases) {
   const q = (cases && cases.quality) || {ok: [], bad: []};
   const ok = q.ok.map((c, i) => `${i + 1}. 原因「${c.reason}」说明「${c.desc}」`).join('\n') || '（暂无）';
   const bad = q.bad.map((c, i) => `${i + 1}. 原因「${c.reason}」说明「${c.desc}」→ 驳回：${c.fail}`).join('\n') || '（暂无）';
-  const tpl = (q.ok.find(c => c.appeal) || {}).appeal || '';
+  // 写法参考：优先人工成功的申诉文案（人工通过率明显更高），再补 AI 成功的；最多 3 条、去重
+  const withText = q.ok.filter(c => c.appeal);
+  const pick = [...withText.filter(c => c.by === '人工'), ...withText.filter(c => c.by !== '人工')];
+  const tpl = [...new Set(pick.map(c => c.appeal))].slice(0, 3);
   return {ok, bad, tpl};
 }
 
@@ -89,7 +92,7 @@ ${t.bad}
 - verdict="quality_claim"：售后说明或买家聊天里出现了具体品质问题（见背景）、或买家发过问题图片 → 不举报
 - verdict="uncertain"：拿不准、或和成功案例都不像 → 交人工
 - confidence：0~1，只有和成功案例高度相似、且聊天里买家没有任何品质抱怨时才给 0.85 以上
-- desc：举报说明，100 字以内，仿照成功案例的写法，写清「售后原因选了XX，但说明/沟通显示是XX主观原因，与所选品质原因不符，恳请核实剔除品退率考核」，不要编造事实${t.tpl ? '\n  成功案例的说明写法参考：' + t.tpl : ''}
+- desc：举报说明，100 字以内，仿照成功案例的写法，写清「售后原因选了XX，但说明/沟通显示是XX主观原因，与所选品质原因不符，恳请核实剔除品退率考核」，不要编造事实${t.tpl.length ? '\n  成功申诉的写法参考（业务人工写的优先，仿照其结构和语气，但不要照抄事实）：\n' + t.tpl.map((x, i) => '  ' + (i + 1) + '. ' + x).join('\n') : ''}
 严格只输出 JSON，不要解释：
 {"verdict":"appeal|quality_claim|uncertain","confidence":0到1,"similar":"最像的那条成功案例的说明原文或空","why":"一句话理由","desc":"举报说明或空"}`;
 }
