@@ -4,6 +4,20 @@
 
 const QUALITY_REJECT_HINT = /品质问题|商品存在品质|签收后发起品质/;
 
+// 纯主观说明：整句只由「不喜欢/不想要/不好看/不合适…」这类主观词和语气词组成。业务统计这类说明的举报基本 100% 通过。
+// 浏览器页面（appeal-web.js 的 isPureSubj）有一份同样的词表，改这里要一起改。
+const SUBJ_CORE = ['多拍错拍', '不喜欢', '不想要', '不想', '不要了', '不好看', '不合适', '不适合', '不满意', '不需要', '不爱', '拍错', '多拍', '错拍', '买错'];
+const SUBJ_FILL = ['衣服', '款式', '颜色', '样子', '穿着', '穿了', '穿', '上身', '收到货', '收到', '感觉', '觉得', '我', '太', '很', '有点', '特别', '真的', '了', '的', '啊', '呀', '吧'];
+function isPureSubjective(desc) {
+  let t = String(desc || '').replace(/[\s，。！？、,.!?；;~～…]/g, '');
+  if (!t) return false;
+  let hit = false;
+  for (const w of SUBJ_CORE) if (t.includes(w)) { hit = true; t = t.split(w).join('|'); }
+  if (!hit) return false;
+  for (const w of SUBJ_FILL) t = t.split(w).join('');
+  return t.split('|').join('') === '';
+}
+
 const shortReason = r => String(r || '').replace(/[（(]商品品质原因[）)]|[（(]物流品质原因[）)]/g, '').trim();
 const cleanMsg = m => String(m || '').replace(/^失败原因[:：]/, '').split(/;平台建议|；平台建议/)[0].replace(/^商家您好，?/, '').trim().slice(0, 60);
 
@@ -54,7 +68,8 @@ function qualityCasesText(cases) {
 
 const QUALITY_RULES = `背景：买家退货时选了「品质原因」（商品质量不好 / 商品与描述不符 等），会计入店铺品退率。
 如果买家实际是个人主观原因（不喜欢、不想要、不合适、尺码不合适、买大/买小、上身效果不好、和想象的不一样等），商家可以举报「消费者选择品质退货与事实不符」，平台核实后剔除品退率。
-平台驳回的最主要原因：买家已在【售后说明】或【飞鸽聊天】中表明商品存在品质问题——比如质量差、做工差、开线、破洞、起球、掉色、色差、薄/透、异味、皱、与描述/图片/直播不符、尺码不标准等。只要出现这类具体问题描述，举报基本必败。`;
+平台驳回的最主要原因：买家已在【售后说明】或【飞鸽聊天】中表明商品存在品质问题——比如质量差、做工差、开线、破洞、起球、掉色、色差、薄/透、异味、皱、与描述/图片/直播不符、尺码不标准等。只要出现这类具体问题描述，举报基本必败。
+业务统计：售后说明里只有「不喜欢、不想要、不好看、不合适、拍错了」这类纯主观词、没有任何具体品质描述的，举报基本 100% 通过。遇到这种说明，只要买家聊天里也没有品质抱怨，就按 appeal 判，confidence 给 0.9 以上。`;
 
 // 第一轮：只看售后说明的批量初筛（便宜），决定要不要进入完整判断
 function qualityScreenPrompt(cases) {
@@ -151,4 +166,4 @@ async function chatJSON(cfg, sys, user, {timeoutMs = 30000, tries = 3, maxTokens
   throw lastErr || new Error('大模型无结果');
 }
 
-module.exports = {buildCases, qualityScreenPrompt, qualityJudgePrompt, qualityJudgeUser, reviewCasesText, normalizeJudge, parseJSON, chatJSON, shortReason};
+module.exports = {isPureSubjective, buildCases, qualityScreenPrompt, qualityJudgePrompt, qualityJudgeUser, reviewCasesText, normalizeJudge, parseJSON, chatJSON, shortReason};

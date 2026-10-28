@@ -620,7 +620,7 @@ const BAD_WORDS = /测试|抓包|请忽略|test|debug|demo|样例|试验/i;
 function sanitizeDesc(t){ return String(t||'').replace(BAD_WORDS,'').replace(/\s{2,}/g,' ').trim().slice(0,100); }
 // 学习经验：平台审核过的成功/失败案例（run() 开头从 appeal-web 数据现建）
 let CASES = null;
-const LEARN_MIN_DESC_LEN = 4;   // 售后说明太短（如「不合适」）历史上成败各半，一律交人工
+const LEARN_MIN_DESC_LEN = 4;   // 售后说明太短一律交人工；纯主观说明（不喜欢/不合适等，业务统计≈100%通过）除外
 const LEARN_AUTO_CONF = 0.85;   // 和成功案例高度相似才自动提交，否则进人工核对
 async function llmJudgeQuality(o){
   const cfg=llmCfg(); if(!cfg||!cfg.key) return null;
@@ -1054,7 +1054,7 @@ function createAppeal({store, jobs, app}){
         const _h=HIST[code.sub]||null;
         const histAuto=!!(AUTO_SUBMIT_BY_HISTORY && _h && _h.n>=HIST_MIN_N && _h.rate>=HIST_MIN_RATE && !(qit && qit.status==='rejected'));
         // 学习经验高度相似（像平台判成功的历史品退）→ 按学到的写法直接提交；拿不准的照旧进人工核对
-        const learnAuto=!!(c.kind==='quality' && qLearn && qLearn.verdict==='appeal' && qLearn.confidence>=LEARN_AUTO_CONF && qLearn.desc && String(c.description||'').replace(/\s/g,'').length>=LEARN_MIN_DESC_LEN && !(qit && qit.status==='rejected'));
+        const learnAuto=!!(c.kind==='quality' && qLearn && qLearn.verdict==='appeal' && qLearn.confidence>=LEARN_AUTO_CONF && qLearn.desc && (LEARN.isPureSubjective(c.description) || String(c.description||'').replace(/\s/g,'').length>=LEARN_MIN_DESC_LEN) && !(qit && qit.status==='rejected'));
         const autoApprove=highPreAudit||histAuto||learnAuto;
         if(reviewQueue && (c.kind==='review'||c.kind==='quality') && !autoApprove && (!qit || (qit.status!=='confirmed' && qit.status!=='submitted'))){
           const q=loadQueue();

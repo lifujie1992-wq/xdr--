@@ -812,10 +812,25 @@ const qDesc=(x,sub)=>{ const t=qTpl(x,sub); return (qStatus(x)==='待核对'&&t&
 const QDRAFT={};
 document.addEventListener('input',ev=>{ const t=ev.target; if(t&&t.id&&t.id.indexOf('qta_')===0){ const o=t.id.slice(4); (QDRAFT[o]=QDRAFT[o]||{}).desc=t.value; } });
 document.addEventListener('change',ev=>{ const t=ev.target; if(t&&t.id&&t.id.indexOf('qsub_')===0){ const o=t.id.slice(5); (QDRAFT[o]=QDRAFT[o]||{}).sub=t.value; } });
-let QF={status:'待核对',shop:'',q:''}, QDATA={items:[]};
+let QF={status:'待核对',shop:'',q:'',subj:false}, QDATA={items:[]};
+// 纯主观说明：整句只由「不喜欢/不想要/不好看…」这类主观词和语气词组成，没有任何具体品质描述（质量/薄/色差/开线等一出现就不算）。
+// 历史上这类说明的举报几乎全部成功；单独一句「不合适」成败各半，所以只做标记+筛选，不自动提交。
+const SUBJ_CORE=['多拍错拍','不喜欢','不想要','不想','不要了','不好看','不合适','不适合','不满意','不需要','不爱','拍错','多拍','错拍','买错'];
+const SUBJ_FILL=['衣服','款式','颜色','样子','穿着','穿了','穿','上身','收到货','收到','感觉','觉得','我','太','很','有点','特别','真的','了','的','啊','呀','吧'];
+function isPureSubj(x){
+  if(!x||x.kind!=='quality') return false;
+  let t=String(x.aftersale_desc||'').replace(/[\\s，。！？、,.!?；;~～…]/g,'');
+  if(!t) return false;
+  let hit=false;
+  for(const w of SUBJ_CORE){ if(t.indexOf(w)>=0){ hit=true; t=t.split(w).join('|'); } }
+  if(!hit) return false;
+  for(const w of SUBJ_FILL) t=t.split(w).join('');
+  return t.split('|').join('')==='';
+}
 function qFiltered(){
   return QDATA.items.filter(x=>{
     if(QF.status && qStatus(x)!==QF.status) return false;
+    if(QF.subj && !isPureSubj(x)) return false;
     if(QF.shop && (x.shop||'').toLowerCase().indexOf(QF.shop.toLowerCase())<0) return false;
     if(QF.q){ const h=((x.shop||'')+' '+(x.order_id||'')+' '+(x.content||'')).toLowerCase(); if(h.indexOf(QF.q)<0) return false; }
     if(!favFilter(x)) return false;
@@ -953,7 +968,7 @@ function qEditBlock(x){
         : (st==='已确认' ? '<button class="qa" data-oid="'+x.order_id+'" data-act="reset">↩ 撤回确认</button>' : ''));
   const tplBar = (st==='待核对' && x.kind!=='quality') ? '<span class="hint"><a class="lnk" data-tpl="'+x.order_id+'">✨ 套用预置文案</a> · <a class="lnk" data-ai="'+x.order_id+'">↺ AI 原稿</a></span>' : '';
   const head = (x.kind==='quality')
-    ? ('<div class="qhint">售后：'+esc(x.content||'—')+((rec||pa)?(' '+rec+pa):'')+'</div>'
+    ? ('<div class="qhint">售后：'+esc(x.content||'—')+(isPureSubj(x)?' <span class="tag" style="background:#e9f7f0;color:#1f7a55">纯主观</span>':'')+((rec||pa)?(' '+rec+pa):'')+'</div>'
        +'<div class="qhint2">说明：'+esc(x.aftersale_desc||'—')+' ｜ 图片：'+((x.has_media===1)?'有':((x.has_media===0)?'无':'?'))+' ｜ 飞鸽：'+((Number(x.chat_total||0))?('共'+x.chat_total+'条'+(x.chat_imgs?('（含图'+x.chat_imgs+'）'):'')+((Number(x.chat_buyer||0)===0)?'(买家未发言)':'')):'无聊天记录')+'</div>')
     : ('<div class="qhint" title="'+esc(x.content||'')+'">评价：'+esc(x.content||'—')+((rec||pa)?(' '+rec+pa):'')+'</div>');
   return '<div class="qinline">'+head
@@ -970,8 +985,10 @@ function drawQueue(){
   if(document.activeElement && $('queuewrap').contains(document.activeElement) && /TEXTAREA|INPUT|SELECT/.test(document.activeElement.tagName)) return; // 行内编辑时不重绘（顶部筛选/搜索框不在此列，保证输入即过滤）
   const all=QDATA.items||[]; const cnt={}; for(const s of QST) cnt[s]=all.filter(x=>qStatus(x)===s).length;
   const el=$('qchips');
-  el.innerHTML=QST.map(k=>'<button class="chip'+(QF.status===k?' on':'')+'" data-st="'+k+'">'+esc(qLabel(k))+'<i>'+(cnt[k]||0)+'</i></button>').join('');
-  el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ QF.status=b.dataset.st; drawQueue(); });
+  const subjN=all.filter(x=>qStatus(x)===QF.status&&isPureSubj(x)).length;
+  el.innerHTML=QST.map(k=>'<button class="chip'+(QF.status===k?' on':'')+'" data-st="'+k+'">'+esc(qLabel(k))+'<i>'+(cnt[k]||0)+'</i></button>').join('')
+    +'<button class="chip'+(QF.subj?' on':'')+'" data-subj="1" title="售后说明只有不喜欢/不想要/不好看这类主观词，没有具体品质问题">纯主观说明<i>'+subjN+'</i></button>';
+  el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ if(b.dataset.subj){ QF.subj=!QF.subj; } else { QF.status=b.dataset.st; } drawQueue(); });
   const shops=[...new Set(all.map(x=>x.shop).filter(Boolean))];
   drawFavChips(shops);
   const qs=$('qshop');
